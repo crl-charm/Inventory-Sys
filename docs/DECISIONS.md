@@ -42,7 +42,10 @@ amount; client-sent totals don't exist.
 `Asia/Manila`, fixed +08:00, no DST). The movement-ledger date filters build
 UTC boundaries in JS rather than calling `CONVERT_TZ`, because MariaDB's
 timezone tables are often not loaded on XAMPP installs (CONVERT_TZ then
-returns NULL and silently breaks filters).
+returns NULL and silently breaks filters). A defect here — `timezone: "Z"`
+only governs how mysql2 *parses* values, not how the database *writes*
+`DEFAULT CURRENT_TIMESTAMP` columns — was found and fixed in D-19 after the
+owner noticed wrong "entered" times.
 
 ## D-06 — Auth session
 Signature-verified JWT (HS256, `jose`) in an HttpOnly, SameSite=Lax cookie,
@@ -99,9 +102,10 @@ multi-branch, or offline/PWA features. End-of-day batch entry only.
 ## D-16 — Testing approach
 No test framework was added. The spec's acceptance-criteria list is executed
 as a runnable script against the live HTTP API + MariaDB:
-`scripts/acceptance.ps1` (auth, catalog, sales posting, base/final pricing,
-idempotency, oversell rejection, stock ops, reports, void/audit,
-deactivation). It mutates data and is meant for dev machines.
+`backend/scripts/acceptance.ps1` (auth, catalog, sales posting, base/final
+pricing, idempotency, oversell rejection, stock ops, reports, void/audit,
+deactivation). It drives the frontend proxy at `:3000`, so both services must
+be running. It mutates data and is meant for dev machines.
 
 ## D-17 — Base Price / Final Price on sale lines
 Per `daily_sales_base_final_price_agent_instructions_v2.md`: the Record Daily
@@ -121,3 +125,46 @@ retired once no pre-change client remains. Only the Record Daily Sales screen
 gained the new fields — other screens keep their layout and show the saved
 Final Price in any existing single price column. No discount terminology is
 used anywhere.
+
+## D-18 — Backend/frontend split for deployment
+The app is split so the two halves deploy independently (two Render Web
+Services): `backend/` is a plain Node HTTP API (`tsx`, port 4000) that owns
+the database, services, migrations, seed and the acceptance script;
+`frontend/` is the Next.js UI (port 3000). The browser only talks to the
+frontend origin — `/api/*` is proxied server-side
+(`frontend/src/app/api/[...path]/route.ts`) and server-rendered pages fetch
+through `frontend/src/lib/backend.ts` — so the session cookie stays
+first-party. CSRF: mutations must carry an Origin matching `FRONTEND_ORIGIN`
+(backend env) or the API origin. `FRONTEND_ORIGIN` accepts a
+comma/space-separated list, so the store phone on the LAN
+(e.g. `http://192.168.68.102:3000`) can sign in as well — unknown origins
+are still rejected. The `server-only` imports were removed from
+backend services (Next.js guards with no meaning in a standalone server).
+Root `package.json` scripts delegate to the halves with `npm --prefix`.
+Deploying to Render still needs an external MySQL host - Render offers
+Postgres only, so `DB_*` must point at a reachable MySQL/MariaDB server.
+
+## D-19 - DATETIME writes are pinned to UTC (wrong "entered" times fixed)
+The owner reported that recorded sales showed the wrong time. Root cause:
+`DEFAULT CURRENT_TIMESTAMP` columns (`created_at`, `updated_at`,
+`applied_at`) were written in the database session's local time (SYSTEM =
+UTC+08:00 on this machine) while mysql2's `timezone: "Z"` and the UI read
+them as UTC and converted to `Asia/Manila` for display — so a sale recorded
+at 11:53 PM showed as 7:53 AM the next day (+8h). The `timezone: "Z"` pool
+option only affects parsing; it never touched the session timezone. Fix:
+every connection pins `SET time_zone = '+00:00'` — the app pool in
+`backend/src/lib/db.ts` (via the `connection` event) and the `db-init`,
+`db-migrate`, `seed-owner` scripts — so DB time and app time agree in UTC
+end to end (D-05). Already-stored rows are shifted by migration
+`0002_datetimes_to_utc`: `DATE_SUB(col, INTERVAL 8 HOUR)` (fixed offset;
+CONVERT_TZ avoided per D-05) on `users`, `categories`, `products`,
+`sale_batches.created_at`, `stock_movements.created_at` and
+`schema_migrations.applied_at`. `sale_batches.voided_at` is not shifted — it
+was always written with explicit `UTC_TIMESTAMP()` and was already correct.
+The migration records itself inside the same transaction as the data shift
+and `db-migrate` now uses `INSERT IGNORE` for the record, so an interrupted
+run can never double-shift. `npm run db:migrate` (once, on installs that
+predate this entry; a no-op on fresh ones). The acceptance suite gained two
+regression checks asserting `createdAt` / `voidedAt` are within 5 minutes of
+UTC now — catching this class of bug automatically.
+True

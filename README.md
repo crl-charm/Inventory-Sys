@@ -3,8 +3,11 @@
 Replace the notebook: record what was sold at the end of the day, and the app
 deducts stock, totals the day's revenue, and keeps a full audit trail.
 
-Built to `hardware_store_inventory_agent_spec.md` (Next.js App Router +
-TypeScript + Tailwind + MySQL/MariaDB via XAMPP, `mysql2`).
+Built to `hardware_store_inventory_agent_spec.md` (Next.js frontend + Node
+API + TypeScript + Tailwind + MySQL/MariaDB via XAMPP, `mysql2`).
+
+The repo is split for two Render Web Services: `frontend/` (UI) and
+`backend/` (API + DB scripts).
 
 ---
 
@@ -44,12 +47,14 @@ Not a POS: it records end-of-day totals, not per-customer receipts.
 2. **Install dependencies**
 
    ```powershell
-   npm install
+   npm install --prefix backend
+   npm install --prefix frontend
    ```
 
-3. **Create your environment file** — copy `.env.example` to `.env.local` and
-   adjust if needed (defaults match a stock XAMPP install: `root`, empty
-   password). Generate a secret for `AUTH_SECRET`:
+3. **Create environment files** — copy `backend/.env.example` to
+   `backend/.env.local` and `frontend/.env.example` to `frontend/.env.local`.
+   Defaults match a stock XAMPP install (`root`, empty password). Generate a
+   secret for `AUTH_SECRET`:
 
    ```powershell
    node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
@@ -58,14 +63,14 @@ Not a POS: it records end-of-day totals, not per-customer receipts.
 4. **Create the database and tables**
 
    ```powershell
-   npm run db:init      # creates hardware_inventory + applies database/schema.sql
+   npm run db:init      # creates hardware_inventory + applies backend/database/schema.sql
    npm run db:migrate   # applies versioned migrations (no-op on a fresh install)
    ```
 
-   `db:init` creates `hardware_inventory`, applies `database/schema.sql`, and
-   seeds the starting categories. `db:migrate` upgrades an existing database in
-   place and is safe to re-run. (Alternatively import `database/schema.sql`
-   via phpMyAdmin — see `database/README.md`.)
+   `db:init` creates `hardware_inventory`, applies `backend/database/schema.sql`,
+   and seeds the starting categories. `db:migrate` upgrades an existing database
+   in place and is safe to re-run. (Alternatively import the schema via
+   phpMyAdmin — see `backend/database/README.md`.)
 
 5. **Create the owner account** (no public sign-up exists)
 
@@ -73,17 +78,19 @@ Not a POS: it records end-of-day totals, not per-customer receipts.
    npm run db:seed-owner
    ```
 
-   Uses `SEED_OWNER_USERNAME` / `SEED_OWNER_PASSWORD` from `.env.local` when
-   set; otherwise creates `owner` and prints a generated password **once**.
+   Uses `SEED_OWNER_USERNAME` / `SEED_OWNER_PASSWORD` from `backend/.env.local`
+   when set; otherwise creates `owner` and prints a generated password **once**.
    Re-run any time to change the password.
 
-6. **Run the app**
+6. **Run the app** — two terminals:
 
    ```powershell
-   npm run dev
+   npm run dev:backend    # API at http://localhost:4000
+   npm run dev:frontend   # UI at http://localhost:3000
    ```
 
-   Open <http://localhost:3000> and sign in.
+   Open <http://localhost:3000> and sign in. The UI proxies `/api/*` to the
+   backend so the session cookie stays on the frontend origin.
 
 ## Daily use
 
@@ -105,14 +112,29 @@ stock is restored automatically — then record the corrected entry.
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Start the app (development) |
-| `npm run build` / `npm start` | Production build / serve |
-| `npm run lint` | ESLint |
-| `npm run typecheck` | TypeScript check |
-| `npm run db:init` | Create DB + apply `database/schema.sql` (safe to re-run) |
+| `npm run dev:backend` | Start the API on port 4000 |
+| `npm run dev:frontend` | Start the UI on port 3000 |
+| `npm run db:init` | Create DB + apply `backend/database/schema.sql` (safe to re-run) |
 | `npm run db:migrate` | Apply versioned migrations to an existing database (safe to re-run) |
 | `npm run db:seed-owner` | Create/update the owner account |
-| `powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1` | Run the end-to-end acceptance checks (mutates data; needs the dev server running) |
+| `powershell -ExecutionPolicy Bypass -File backend\scripts\acceptance.ps1` | End-to-end checks (mutates data; needs both servers) |
+
+### Render
+
+Create **two Web Services** from this repo:
+
+1. **API** — Root Directory `backend`, build `npm install`, start `npm start`.
+   Set `DB_*`, `AUTH_SECRET`, `APP_TIME_ZONE`, and `FRONTEND_ORIGIN` to the
+   frontend URL (e.g. `https://your-ui.onrender.com`). `FRONTEND_ORIGIN`
+   accepts a comma-separated list, so one API can serve both localhost and a
+   LAN address (e.g. `http://localhost:3000,http://192.168.68.102:3000`),
+   which is what lets the store phone sign in over Wi-Fi.
+2. **UI** — Root Directory `frontend`, build `npm install && npm run build`,
+   start `npm start`. Set `BACKEND_URL` to the API URL
+   (e.g. `https://your-api.onrender.com`).
+
+Render sets `PORT` for you. Point `DB_HOST` at a MySQL instance Render can
+reach (Render Postgres is not a drop-in; this app is MySQL/MariaDB).
 
 ---
 
@@ -139,7 +161,7 @@ Never expose phpMyAdmin or port 3306 to the public internet.
 
 ## How correctness is enforced (for maintainers)
 
-- Stock only changes inside `src/services/*` functions that update
+- Stock only changes inside `backend/src/services/*` functions that update
   `products.stock_on_hand` **and** write a `stock_movements` row in the same
   SQL transaction. `stock_on_hand` always equals the sum of the ledger.
 - `postSalesBatch()` locks every affected product row, re-checks stock, and

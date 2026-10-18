@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+}
+
+/*
+ * Motion tokens. Every animation below starts `both` so elements never flash
+ * un-styled before the keyframes kick in, and all easing is a gentle ease-out
+ * curve that suits touch UIs.
+ */
+@theme {
+  --animate-fade-in: fade-in 0.25s ease-out both;
+  --animate-fade-up: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-scale-in: scale-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-sheet-up: sheet-up 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  /* Brand palette: near-black surfaces with a brushed-brass accent. */
+  --color-brand-ink: #0a0a0b;
+  --color-brand-gold: #c9a45c;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes sheet-up {
+    from {
+      opacity: 0;
+      transform: translateY(48px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+}
+
+/* Soft ambient tint behind every page (fixed: never scrolls or repeats). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  background:
+    radial-gradient(
+      55rem 38rem at 100% -10%,
+      var(--color-sky-200) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      48rem 34rem at -15% 110%,
+      var(--color-indigo-200) 0%,
+      transparent 55%
+    );
+}
+
+::selection {
+  background-color: var(--color-sky-200);
+}
+
+/* Visible focus states everywhere (spec §5: keyboard-accessible controls). */
+:focus-visible {
+  outline: 2px solid var(--color-sky-600);
+  outline-offset: 2px;
+}
+
+/* Shared controls */
+@utility input {
+  @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm transition-all duration-200 placeholder:text-slate-400 hover:border-slate-400;
+  /* focus ring comes from :focus-visible */
+}
+
+@utility btn-primary {
+  @apply inline-flex min-h-11 cursor-pointer select-none items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/20 active:translate-y-0 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-60 disabled:shadow-none;
+}
+
+@utility btn-secondary {
+  @apply inline-flex min-h-11 cursor-pointer select-none items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50 hover:shadow-md active:translate-y-0 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-60 disabled:shadow-none;
+}
+
+@utility btn-danger {
+  @apply inline-flex min-h-11 cursor-pointer select-none items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 ease-out hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-lg hover:shadow-red-600/25 active:translate-y-0 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-60 disabled:shadow-none;
+}
+
+@utility btn-icon {
+  @apply inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-slate-600 transition-all duration-200 ease-out hover:bg-slate-100 hover:text-slate-900 active:scale-90 disabled:pointer-events-none disabled:opacity-50;
+}
+
+/* Sign-in controls: black surfaces with brass accents. */
+@utility input-dark {
+  @apply w-full rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2 text-sm text-white shadow-sm transition-all duration-200 placeholder:text-slate-500 hover:border-white/20;
+  &:focus-visible {
+    outline-color: var(--color-brand-gold);
+  }
+}
+
+@utility btn-gold {
+  @apply inline-flex min-h-11 cursor-pointer select-none items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-200 ease-out hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-60 disabled:shadow-none;
+  background-image: linear-gradient(
+    180deg,
+    #ddc27e 0%,
+    #c9a45c 55%,
+    #b18a3e 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  &:hover {
+    background-image: linear-gradient(
+      180deg,
+      #e6cf92 0%,
+      #d3b069 55%,
+      #bd9447 100%
+    );
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.4),
+      0 12px 28px -12px rgba(201, 164, 92, 0.55);
+  }
+  &:focus-visible {
+    outline-color: var(--color-brand-gold);
+  }
+}
+
+@utility card {
+  @apply rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5;
+}
+
+/*
+ * Users who prefer reduced motion get an effectively static UI: every
+ * animation/transition collapses to a single imperceptible frame.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Print-friendly pages: reports hide app navigation and action buttons. */
+@media print {
+  .print-hidden {
+    display: none !important;
+  }
+  .print-area {
+    box-shadow: none !important;
+    border: none !important;
+  }
+  body {
+    background: white !important;
+  }
+  body::before {
+    display: none !important;
+  }
+}
