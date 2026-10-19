@@ -271,3 +271,24 @@ maintenance, codebase, mobile):
    installs, and rebuilds after new code lands.
 10. **Shared list-page pieces**: `PaginationBar` (sales history, movements)
     and `EmptyState` reuse replace hand-rolled copies.
+
+## D-24 - Managed-MySQL TLS and the path to an online deployment
+
+Deploying to Render requires MySQL the cloud can reach, and managed
+providers (Aiven — the recommended always-free host — DigitalOcean, TiDB)
+require or support TLS. `DB_SSL=true` now switches the mysql2 pool
+(`src/lib/db.ts`) and every `db:*` script to TLS; optional `DB_SSL_CA`
+(pasted PEM — real newlines or `\n` escapes) additionally verifies the
+server certificate instead of only encrypting. Local XAMPP MySQL is
+untouched: with `DB_SSL` unset, nothing changes. `npm run db:import --
+<dump.sql>` (new, `scripts/db-import.ts`, verified against a scratch
+database) loads any `backup-db.bat` dump into the configured server — it is
+how the shop's data moves to the cloud host, and it can restore anywhere
+else the app can connect. The process environment wins over `.env.local`,
+so a cloud import needs no permanent config changes on the shop PC. The
+Render layout stays D-18's two Web Services; there the API additionally
+needs `NODE_ENV=production` (login cookie gets `Secure` over HTTPS) and
+`HOST=0.0.0.0` (D-23's loopback default is LAN-only), and the UI needs
+`BACKEND_URL`. Aiven's free plan powers the service off after long
+inactivity (email warning + power-on button) — daily use keeps it awake.
+README has the click-by-click.

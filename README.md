@@ -124,6 +124,7 @@ stock is restored automatically — then record the corrected entry.
 | `npm run dev:frontend` | Start the UI on port 3000 |
 | `npm run db:init` | Create DB + apply `backend/database/schema.sql` (safe to re-run) |
 | `npm run db:migrate` | Apply versioned migrations to an existing database (safe to re-run) |
+| `npm run db:import -- <dump.sql>` | Load a dump into the configured database (local restore or cloud upload; obeys `DB_SSL`) |
 | `npm run db:seed-owner` | Create/update the owner account |
 | `npm run icons` | Regenerate favicon + PWA icons from `frontend/public/logo.svg` |
 | `powershell -ExecutionPolicy Bypass -File backend\scripts\acceptance.ps1` | End-to-end checks (mutates data; needs both servers) |
@@ -132,24 +133,73 @@ stock is restored automatically — then record the corrected entry.
 | `scripts\backup-db.bat` | Take a database dump now (kept 14 days) |
 | `scripts\restore-db.bat <dump.sql>` | Restore a dump (asks to confirm) |
 
-### Render
+### Render (optional — online deployment)
 
-Create **two Web Services** from this repo:
+The app was built to deploy as **two Render Web Services** (API + UI) from
+this repo. Both on Render is the intended layout: the browser only ever
+talks to the UI service, which proxies `/api/*` to the API server-side, so
+cookies stay first-party and there is no CORS to configure. The one piece
+Render does not provide is **MySQL** (its managed databases are Postgres),
+so the database lives at an external managed MySQL host.
 
-1. **API** — Root Directory `backend`, build `npm install`, start `npm start`.
-   Set `DB_*`, `AUTH_SECRET`, `APP_TIME_ZONE`, `HOST=0.0.0.0` (the API binds
-   to `127.0.0.1` by default — LAN-only — and a public host must opt in), and
-   `FRONTEND_ORIGIN` to the frontend URL (e.g.
-   `https://your-ui.onrender.com`). `FRONTEND_ORIGIN`
-   accepts a comma-separated list, so one API can serve both localhost and a
-   LAN address (e.g. `http://localhost:3000,http://192.168.68.102:3000`),
-   which is what lets the store phone sign in over Wi-Fi.
-2. **UI** — Root Directory `frontend`, build `npm install && npm run build`,
-   start `npm start`. Set `BACKEND_URL` to the API URL
-   (e.g. `https://your-api.onrender.com`).
+**Recommended database: Aiven (always-free plan)** — 1 GB storage/RAM, daily
+backups, TLS, no credit card. It powers off after long inactivity (you get
+an email; there is a power-on button in their console), and daily app use
+keeps it awake. Prefer to not think about it? DigitalOcean Managed MySQL
+(~$15/mo) is the no-fuss paid option; any MySQL 8 endpoint works.
 
-Render sets `PORT` for you. Point `DB_HOST` at a MySQL instance Render can
-reach (Render Postgres is not a drop-in; this app is MySQL/MariaDB).
+1. **Create the database (Aiven).** aiven.io → new **MySQL** service (pick
+   Singapore, the closest region). In the service's **Databases** tab add a
+   database named `hardware_inventory`. From **Overview** note the host,
+   port, user (`avnadmin`) and password, and download the **CA certificate**
+   (`ca.pem`).
+2. **API service.** Render → *New → Web Service* → connect this repo.
+   Root Directory `backend`, Build `npm install`, Start `npm start`, Health
+   Check Path `/health`. Environment:
+   - `DB_HOST`, `DB_PORT`, `DB_NAME=hardware_inventory`, `DB_USER`,
+     `DB_PASSWORD` — the values from step 1
+   - `DB_SSL=true` (managed MySQL requires TLS); optionally `DB_SSL_CA` =
+     contents of `ca.pem` to also verify the server certificate (if the
+     dashboard strips line breaks, write each break as `\n` — both forms
+     work)
+   - `AUTH_SECRET` — a long random value (`backend/.env.example` has a
+     one-liner that generates one)
+   - `APP_TIME_ZONE=Asia/Manila`
+   - `NODE_ENV=production` — this is what marks the login cookie `Secure`
+     over HTTPS
+   - `HOST=0.0.0.0` — the API binds to `127.0.0.1` (LAN-only) by default,
+     so a public host must opt in
+   - `FRONTEND_ORIGIN=https://<your-ui>.onrender.com` — fill this in after
+     step 3, then redeploy (manual deploy) once so the setting is picked up
+3. **UI service.** *New → Web Service*, same repo. Root Directory `frontend`,
+   Build `npm install && npm run build`, Start `npm start`. Environment:
+   `BACKEND_URL=https://<your-api>.onrender.com` (from step 2) and
+   `APP_TIME_ZONE=Asia/Manila`.
+4. **Move the shop's data up.** With local MySQL running, take a fresh dump:
+   `scripts\backup-db.bat`. Then, from `backend\`, aim a one-off import at
+   Aiven (process environment beats `.env.local`, so nothing local changes
+   permanently) and load it:
+
+   ```powershell
+   $env:DB_HOST="<host>"; $env:DB_PORT="<port>"; $env:DB_USER="avnadmin"; $env:DB_PASSWORD="<password>"
+   $env:DB_SSL="true"
+   $env:DB_SSL_CA = Get-Content "$HOME\Downloads\ca.pem" -Raw
+   npm run db:import -- "..\backups\hardware_inventory_<stamp>.sql"
+   ```
+
+   The dump carries users, products, sales and migration history — nothing
+   needs seeding. (While those `$env:` values are set, any `db:*` command in
+   that same window also points at Aiven; close the window when done.)
+5. **Verify + install.** Open `https://<your-ui>.onrender.com`, sign in with
+   the same account, compare the Dashboard with the shop PC, and record and
+   void one test sale. On Android, Chrome now offers the *full* install
+   (`https://` unlocks it), and the app works away from the shop Wi-Fi.
+
+Notes: Render's **free** services sleep after ~15 minutes idle — the first
+visit of the day takes ~30–60 s to wake (Starter, $7/mo per service, stays
+always on). `FRONTEND_ORIGIN` still accepts a comma-separated list, so this
+one API can serve both the cloud UI and your localhost/LAN copy if you keep
+using the shop PC as well.
 
 ---
 
@@ -166,6 +216,9 @@ The database is your ledger — treat it like one.
 - **Restore:** stop the backend window first, then
   `scripts\restore-db.bat backups\hardware_inventory_....sql` and confirm at
   the prompt. Start the backend again afterwards.
+- **Restore / upload to a remote database** (e.g. the Render deployment):
+  point `DB_*` at that server — plus `DB_SSL=true` when it requires TLS —
+  and run `npm run db:import -- ..\backups\hardware_inventory_....sql`.
 - **Off-machine copies:** now and then copy a dump to a USB stick or cloud
   drive — a backup that only lives on the same PC is not a disaster plan.
 - **Optional schedule:** Windows **Task Scheduler** → daily 20:00 →

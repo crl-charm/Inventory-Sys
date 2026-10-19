@@ -25,6 +25,19 @@ function requireEnv(name: string, fallback?: string): string {
   return value;
 }
 
+/**
+ * Managed MySQL providers (Aiven, DigitalOcean, TiDB, …) require TLS. Set
+ * DB_SSL=true to encrypt the connection; optionally set DB_SSL_CA to the
+ * provider's CA certificate (PEM text, real newlines or \n escapes) to also
+ * verify the server certificate. Local XAMPP MySQL needs neither.
+ */
+function sslOption(): undefined | { ca?: string; rejectUnauthorized: boolean } {
+  if (process.env.DB_SSL !== "true") return undefined;
+  const ca = process.env.DB_SSL_CA;
+  if (ca) return { ca: ca.replace(/\\n/g, "\n"), rejectUnauthorized: true };
+  return { rejectUnauthorized: false };
+}
+
 export const pool: mysql.Pool =
   globalForDb.mysqlPool ??
   mysql.createPool({
@@ -33,6 +46,7 @@ export const pool: mysql.Pool =
     user: requireEnv("DB_USER", "root"),
     password: process.env.DB_PASSWORD ?? "",
     database: requireEnv("DB_NAME", "hardware_inventory"),
+    ssl: sslOption(),
     waitForConnections: true,
     connectionLimit: 5,
     queueLimit: 0,

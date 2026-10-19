@@ -43,6 +43,18 @@ function loadEnvFile(file: string): void {
   }
 }
 
+/**
+ * Managed MySQL providers (Aiven, DigitalOcean, …) require TLS — same rules
+ * as src/lib/db.ts: DB_SSL=true enables it, DB_SSL_CA (PEM) verifies the
+ * server certificate.
+ */
+function sslOption(): undefined | { ca?: string; rejectUnauthorized: boolean } {
+  if (process.env.DB_SSL !== "true") return undefined;
+  const ca = process.env.DB_SSL_CA;
+  if (ca) return { ca: ca.replace(/\\n/g, "\n"), rejectUnauthorized: true };
+  return { rejectUnauthorized: false };
+}
+
 interface Migration {
   id: string;
   description: string;
@@ -228,6 +240,7 @@ async function main(): Promise<void> {
       user,
       password,
       database,
+      ssl: sslOption(),
     });
     // Same UTC pin as the app pool (src/lib/db.ts): DATETIME defaults must
     // be written and compared in UTC, regardless of the server's local zone.

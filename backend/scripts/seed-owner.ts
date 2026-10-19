@@ -40,6 +40,18 @@ function loadEnvFile(file: string): void {
   }
 }
 
+/**
+ * Managed MySQL providers (Aiven, DigitalOcean, …) require TLS — same rules
+ * as src/lib/db.ts: DB_SSL=true enables it, DB_SSL_CA (PEM) verifies the
+ * server certificate.
+ */
+function sslOption(): undefined | { ca?: string; rejectUnauthorized: boolean } {
+  if (process.env.DB_SSL !== "true") return undefined;
+  const ca = process.env.DB_SSL_CA;
+  if (ca) return { ca: ca.replace(/\\n/g, "\n"), rejectUnauthorized: true };
+  return { rejectUnauthorized: false };
+}
+
 async function main(): Promise<void> {
   const host = process.env.DB_HOST ?? "127.0.0.1";
   const port = Number(process.env.DB_PORT ?? 3306);
@@ -66,7 +78,7 @@ async function main(): Promise<void> {
 
   let connection: mysql.Connection;
   try {
-    connection = await mysql.createConnection({ host, port, user, password, database });
+    connection = await mysql.createConnection({ host, port, user, password, database, ssl: sslOption() });
   } catch (error) {
     console.error(
       "✗ Cannot connect to the database. Start MySQL in the XAMPP Control Panel, " +
