@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiClientError, qs } from "@/lib/api-client";
+import { invalidateApiCache, useCachedApi } from "@/lib/use-cached-api";
 import {
   centavosToMoneyString,
   compareQuantities,
@@ -14,6 +15,7 @@ import {
   normalizeQuantityInput,
 } from "@/lib/money";
 import { formatDateLong } from "@/lib/dates";
+import { newRequestId } from "@/lib/request-id";
 import { Icon } from "./icons";
 import type { Product } from "@/types";
 
@@ -53,10 +55,6 @@ interface SuccessInfo {
 export function SalesEntryForm({ today }: { today: string }) {
   const router = useRouter();
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productsError, setProductsError] = useState<string | null>(null);
-  const [loadingProducts, setLoadingProducts] = useState(true);
-
   const [saleDate, setSaleDate] = useState(today);
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
@@ -70,31 +68,21 @@ export function SalesEntryForm({ today }: { today: string }) {
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const requestIdRef = useRef<string>(crypto.randomUUID());
+  // One idempotency key per form session, regenerated after each save.
+  // useState's lazy initializer keeps generation out of render and works on
+  // plain-http LAN origins too (see newRequestId).
+  const [requestId, setRequestId] = useState(newRequestId);
   const pickerInputRef = useRef<HTMLInputElement>(null);
 
-  const loadProducts = useCallback(async () => {
-    setLoadingProducts(true);
-    setProductsError(null);
-    try {
-      const items = await api.get<Product[]>(
-        `/api/products${qs({ active: "active", pageSize: 200, sort: "name", order: "asc" })}`
-      );
-      setProducts(items);
-    } catch (error) {
-      setProductsError(
-        error instanceof ApiClientError
-          ? error.message
-          : "Could not load the product list."
-      );
-    } finally {
-      setLoadingProducts(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadProducts();
-  }, [loadProducts]);
+  const {
+    data: productsData,
+    loading: loadingProducts,
+    error: productsError,
+    refresh: refreshProducts,
+  } = useCachedApi<Product[]>(
+    `/api/products${qs({ active: "active", pageSize: 200, sort: "name", order: "asc" })}`
+  );
+  const products = useMemo(() => productsData ?? [], [productsData]);
 
   // Warn when the selected date already has posted entries (spec §4.5).
   useEffect(() => {
@@ -183,7 +171,7 @@ export function SalesEntryForm({ today }: { today: string }) {
     setShortages([]);
     setFormError(null);
     setSuccess(null);
-    requestIdRef.current = crypto.randomUUID(); // new key after a successful save
+    setRequestId(newRequestId()); // new key after a successful save
   }
 
   async function handleSave() {
@@ -214,7 +202,7 @@ export function SalesEntryForm({ today }: { today: string }) {
       const payload = {
         saleDate,
         notes: notes.trim() === "" ? undefined : notes.trim(),
-        requestId: requestIdRef.current,
+        requestId,
         items: lines.map((line) => ({
           productId: line.product.id,
           quantity: normalizeQuantityInput(line.quantity)!,
@@ -247,6 +235,13 @@ export function SalesEntryForm({ today }: { today: string }) {
           ? "This entry was already saved earlier — nothing was deducted twice."
           : "Sales saved. Stock updated."
       );
+      // Keep this form's picker fresh and let every other screen refetch.
+      refreshProducts();
+      invalidateApiCache("/api/dashboard");
+      invalidateApiCache("/api/sales");
+      invalidateApiCache("/api/reports/daily");
+      invalidateApiCache("/api/stock-movements");
+      setDateHasEntries(true);
     } catch (error) {
       if (error instanceof ApiClientError) {
         const details = error.details as { shortages?: ShortageInfo[] } | undefined;
@@ -256,7 +251,7 @@ export function SalesEntryForm({ today }: { today: string }) {
             "Not enough stock — nothing was saved. Adjust the highlighted quantities and try again."
           );
           // Refresh stock numbers so the form shows current availability.
-          void loadProducts();
+          refreshProducts();
         } else {
           setFormError(error.message);
         }
@@ -272,20 +267,20 @@ export function SalesEntryForm({ today }: { today: string }) {
     return (
       <div className="mx-auto max-w-lg">
         <div className="card text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-700">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-2xl text-emerald-300">
             ✓
           </div>
           <h2 className="mt-3 text-lg font-semibold">Saved</h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-slate-300">
             {formatDateLong(success.saleDate)} · {success.totalLines}{" "}
             {success.totalLines === 1 ? "product" : "products"} ·{" "}
             {displayQuantity(String(success.totalQuantity))} total quantity
           </p>
-          <p className="mt-2 text-2xl font-bold text-slate-900">
+          <p className="mt-2 text-2xl font-bold text-white">
             {formatPhp(success.totalAmount)}
           </p>
           {successMessage ? (
-            <p className="mt-2 text-xs text-slate-500">{successMessage}</p>
+            <p className="mt-2 text-xs text-slate-400">{successMessage}</p>
           ) : null}
           <div className="mt-6 flex flex-wrap justify-center gap-2">
             <button
@@ -314,10 +309,10 @@ export function SalesEntryForm({ today }: { today: string }) {
   return (
     <div className="space-y-4">
       {/* Date + notes */}
-      <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:grid-cols-3">
+      <div className="grid gap-4 rounded-2xl border border-white/10 bg-white/[0.035] p-5 sm:grid-cols-3">
         <div>
-          <label htmlFor="sale-date" className="mb-1 block text-sm font-medium text-slate-700">
-            Business date <span className="text-red-600">*</span>
+          <label htmlFor="sale-date" className="mb-1 block text-sm font-medium text-slate-200">
+            Business date <span className="text-red-400">*</span>
           </label>
           <input
             id="sale-date"
@@ -327,12 +322,12 @@ export function SalesEntryForm({ today }: { today: string }) {
             onChange={(e) => setSaleDate(e.target.value)}
             className="input"
           />
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-400">
             The day these sales happened — reports use this date.
           </p>
         </div>
         <div className="sm:col-span-2">
-          <label htmlFor="sale-notes" className="mb-1 block text-sm font-medium text-slate-700">
+          <label htmlFor="sale-notes" className="mb-1 block text-sm font-medium text-slate-200">
             Notes (optional)
           </label>
           <input
@@ -347,21 +342,21 @@ export function SalesEntryForm({ today }: { today: string }) {
       </div>
 
       {saleDate !== today ? (
-        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
           You are recording sales for <strong>{formatDateLong(saleDate)}</strong>.
           Saving deducts these quantities from the <em>current</em> stock today.
         </p>
       ) : null}
       {dateHasEntries ? (
-        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
           Sales have already been recorded for this date. Confirm this is an
           additional entry before saving.
         </p>
       ) : null}
 
       {/* Product picker */}
-      <div className="relative rounded-2xl border border-slate-200 bg-white p-5">
-        <label htmlFor="product-picker" className="mb-1 block text-sm font-medium text-slate-700">
+      <div className="relative rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+        <label htmlFor="product-picker" className="mb-1 block text-sm font-medium text-slate-200">
           Add a product
         </label>
         <input
@@ -394,17 +389,17 @@ export function SalesEntryForm({ today }: { today: string }) {
           autoComplete="off"
         />
         {productsError ? (
-          <p role="alert" className="mt-2 text-sm text-red-600">
+          <p role="alert" className="mt-2 text-sm text-red-400">
             {productsError}{" "}
-            <button type="button" onClick={loadProducts} className="underline">
+            <button type="button" onClick={refreshProducts} className="underline">
               Retry
             </button>
           </p>
         ) : null}
         {!loadingProducts && products.length === 0 && !productsError ? (
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-slate-400">
             No active products yet.{" "}
-            <Link href="/inventory/new" className="font-medium text-sky-700 underline">
+            <Link href="/inventory/new" className="font-medium text-brand-gold underline">
               Add your first product
             </Link>{" "}
             before recording sales.
@@ -415,7 +410,7 @@ export function SalesEntryForm({ today }: { today: string }) {
           <ul
             id="product-picker-list"
             role="listbox"
-            className="absolute left-5 right-5 z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg"
+            className="absolute left-5 right-5 z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-white/10 bg-brand-panel shadow-2xl shadow-black/60"
           >
             {filteredProducts.slice(0, 50).map((product) => {
               const outOfStock = product.stockStatus === "out_of_stock";
@@ -425,16 +420,16 @@ export function SalesEntryForm({ today }: { today: string }) {
                     type="button"
                     disabled={outOfStock}
                     onClick={() => addProduct(product)}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-medium">
                         {product.name}
                         {product.brand ? (
-                          <span className="ml-2 text-xs text-slate-500">{product.brand}</span>
+                          <span className="ml-2 text-xs text-slate-400">{product.brand}</span>
                         ) : null}
                       </span>
-                      <span className="block text-xs text-slate-500">
+                      <span className="block text-xs text-slate-400">
                         {product.sku ? `${product.sku} · ` : ""}
                         {product.categoryName}
                       </span>
@@ -443,7 +438,7 @@ export function SalesEntryForm({ today }: { today: string }) {
                       <span className="block font-semibold">
                         {displayQuantity(product.stockOnHand)} {product.unit}
                       </span>
-                      <span className="block text-slate-500">
+                      <span className="block text-slate-400">
                         {outOfStock ? "Out of stock" : formatPhp(product.sellingPrice)}
                       </span>
                     </span>
@@ -457,14 +452,14 @@ export function SalesEntryForm({ today }: { today: string }) {
         !loadingProducts &&
         filteredProducts.length === 0 &&
         pickerQuery.trim() !== "" ? (
-          <p className="mt-2 text-sm text-slate-500">No matching products.</p>
+          <p className="mt-2 text-sm text-slate-400">No matching products.</p>
         ) : null}
       </div>
 
       {shortages.length > 0 ? (
         <div
           role="alert"
-          className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+          className="rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-300"
         >
           <p className="font-semibold">Not enough stock — nothing was saved:</p>
           <ul className="mt-2 list-inside list-disc space-y-1">
@@ -481,7 +476,7 @@ export function SalesEntryForm({ today }: { today: string }) {
       {formError && shortages.length === 0 ? (
         <p
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
         >
           {formError}
         </p>
@@ -489,20 +484,20 @@ export function SalesEntryForm({ today }: { today: string }) {
 
       {/* Lines table */}
       {lines.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
-          <p className="text-sm font-semibold text-slate-800">
+        <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.03] px-6 py-10 text-center">
+          <p className="text-sm font-semibold text-slate-100">
             No products added yet
           </p>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-slate-400">
             Search above and press Enter (or click a result) to add the first line.
           </p>
         </div>
       ) : (
         <>
           {/* Desktop / tablet: full table */}
-          <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white md:block">
+          <div className="hidden overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.035] md:block">
             <table className="w-full min-w-[820px] text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-white/10 bg-white/[0.04] text-xs uppercase tracking-wide text-slate-400">
                 <tr>
                   <th className="px-3 py-2.5 font-medium">Product</th>
                   <th className="px-3 py-2.5 text-right font-medium">Available stock</th>
@@ -516,7 +511,7 @@ export function SalesEntryForm({ today }: { today: string }) {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-white/5">
                 {lines.map((line, index) => {
                   const quantityNormalized = normalizeQuantityInput(line.quantity);
                   const priceNormalized = normalizeMoneyInput(line.finalUnitPrice);
@@ -535,10 +530,10 @@ export function SalesEntryForm({ today }: { today: string }) {
                     (s) => s.productId === line.product.id
                   );
                   return (
-                    <tr key={line.product.id} className={exceeded ? "bg-red-50/60" : ""}>
+                    <tr key={line.product.id} className={exceeded ? "bg-red-500/[0.07]" : ""}>
                       <td className="px-3 py-2.5">
                         <p className="font-medium">{line.product.name}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-400">
                           {[line.product.sku, line.product.brand]
                             .filter(Boolean)
                             .join(" · ") || line.product.categoryName}
@@ -547,22 +542,22 @@ export function SalesEntryForm({ today }: { today: string }) {
                       <td className="px-3 py-2.5 text-right">
                         {displayQuantity(line.product.stockOnHand)}
                       </td>
-                      <td className="px-3 py-2.5 text-slate-600">{line.product.unit}</td>
+                      <td className="px-3 py-2.5 text-slate-300">{line.product.unit}</td>
                       <td className="px-3 py-2.5">
                         <input
                           value={line.quantity}
                           onChange={(e) => updateLine(index, { quantity: e.target.value })}
                           inputMode="decimal"
                           aria-label={`Quantity sold for ${line.product.name}`}
-                          className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                          className="w-24 rounded-lg border border-white/10 bg-white/[0.045] px-2 py-1.5 text-sm text-white hover:border-white/20"
                         />
                         {exceeded || shortage ? (
-                          <p className="mt-1 text-xs font-medium text-red-700">
+                          <p className="mt-1 text-xs font-medium text-red-400">
                             Only {displayQuantity(line.product.stockOnHand)} in stock
                           </p>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-200">
                         {formatPhp(line.product.sellingPrice)}
                       </td>
                       <td className="px-3 py-2.5">
@@ -581,15 +576,15 @@ export function SalesEntryForm({ today }: { today: string }) {
                             inputMode="decimal"
                             aria-label={`Final price for ${line.product.name}`}
                             aria-invalid={priceInvalid || priceBlank}
-                            className={`w-28 rounded-lg border py-1.5 pl-6 pr-2 text-sm ${
+                            className={`w-28 rounded-lg border bg-white/[0.045] py-1.5 pl-6 pr-2 text-sm text-white ${
                               priceInvalid || priceBlank
-                                ? "border-red-400 bg-red-50"
-                                : "border-slate-300"
+                                ? "border-red-400 bg-red-500/10"
+                                : "border-white/10 hover:border-white/20"
                             }`}
                           />
                         </div>
                         {priceInvalid || priceBlank ? (
-                          <p className="mt-1 text-xs font-medium text-red-700">
+                          <p className="mt-1 text-xs font-medium text-red-400">
                             {priceBlank ? "Enter a price." : "Like 350 or 350.50."}
                           </p>
                         ) : null}
@@ -602,7 +597,7 @@ export function SalesEntryForm({ today }: { today: string }) {
                           type="button"
                           onClick={() => removeLine(index)}
                           aria-label={`Remove ${line.product.name}`}
-                          className="rounded-lg p-1.5 text-slate-400 transition-all duration-200 hover:bg-red-50 hover:text-red-600 active:scale-90"
+                          className="rounded-lg p-1.5 text-slate-400 transition-all duration-200 hover:bg-red-500/10 hover:text-red-300 active:scale-90"
                         >
                           <Icon name="close" className="h-4 w-4" />
                         </button>
@@ -636,14 +631,14 @@ export function SalesEntryForm({ today }: { today: string }) {
               return (
                 <li
                   key={line.product.id}
-                  className={`rounded-2xl border bg-white p-4 ${
-                    exceeded ? "border-red-300 bg-red-50/60" : "border-slate-200"
+                  className={`rounded-2xl border bg-white/[0.035] p-4 ${
+                    exceeded ? "border-red-400/40 bg-red-500/[0.08]" : "border-white/10"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-medium">{line.product.name}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">
+                      <p className="mt-0.5 text-xs text-slate-400">
                         {line.product.sku ? `${line.product.sku} · ` : ""}
                         Available: {displayQuantity(line.product.stockOnHand)}{" "}
                         {line.product.unit}
@@ -653,7 +648,7 @@ export function SalesEntryForm({ today }: { today: string }) {
                       type="button"
                       onClick={() => removeLine(index)}
                       aria-label={`Remove ${line.product.name}`}
-                      className="rounded-lg p-2 text-slate-400 transition-all duration-200 hover:bg-red-50 hover:text-red-600 active:scale-90"
+                      className="rounded-lg p-2 text-slate-400 transition-all duration-200 hover:bg-red-500/10 hover:text-red-300 active:scale-90"
                     >
                       <Icon name="close" className="h-5 w-5" />
                     </button>
@@ -662,7 +657,7 @@ export function SalesEntryForm({ today }: { today: string }) {
                     <div>
                       <label
                         htmlFor={`qty-${line.product.id}`}
-                        className="mb-1 block text-xs font-medium text-slate-600"
+                        className="mb-1 block text-xs font-medium text-slate-400"
                       >
                         Quantity sold ({line.product.unit})
                       </label>
@@ -671,10 +666,10 @@ export function SalesEntryForm({ today }: { today: string }) {
                         value={line.quantity}
                         onChange={(e) => updateLine(index, { quantity: e.target.value })}
                         inputMode="decimal"
-                        className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm"
+                        className="w-full rounded-lg border border-white/10 bg-white/[0.045] px-2.5 py-2 text-sm text-white hover:border-white/20"
                       />
                       {exceeded || shortage ? (
-                        <p className="mt-1 text-xs font-medium text-red-700">
+                        <p className="mt-1 text-xs font-medium text-red-400">
                           Only {displayQuantity(line.product.stockOnHand)} in stock
                         </p>
                       ) : null}
@@ -682,7 +677,7 @@ export function SalesEntryForm({ today }: { today: string }) {
                     <div>
                       <label
                         htmlFor={`price-${line.product.id}`}
-                        className="mb-1 block text-xs font-medium text-slate-600"
+                        className="mb-1 block text-xs font-medium text-slate-400"
                       >
                         Final price
                       </label>
@@ -701,24 +696,24 @@ export function SalesEntryForm({ today }: { today: string }) {
                           }
                           inputMode="decimal"
                           aria-invalid={priceInvalid || priceBlank}
-                          className={`w-full rounded-lg border py-2 pl-7 pr-2 text-sm ${
+                          className={`w-full rounded-lg border bg-white/[0.045] py-2 pl-7 pr-2 text-sm text-white ${
                             priceInvalid || priceBlank
-                              ? "border-red-400 bg-red-50"
-                              : "border-slate-300"
+                              ? "border-red-400 bg-red-500/10"
+                              : "border-white/10 hover:border-white/20"
                           }`}
                         />
                       </div>
                       {priceInvalid || priceBlank ? (
-                        <p className="mt-1 text-xs font-medium text-red-700">
+                        <p className="mt-1 text-xs font-medium text-red-400">
                           {priceBlank ? "Enter a price." : "Like 350 or 350.50."}
                         </p>
                       ) : null}
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
-                    <span className="text-slate-600">
+                  <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-sm">
+                    <span className="text-slate-300">
                       Base price:{" "}
-                      <span className="font-medium text-slate-800">
+                      <span className="font-medium text-slate-100">
                         {formatPhp(line.product.sellingPrice)}
                       </span>
                     </span>
@@ -736,9 +731,9 @@ export function SalesEntryForm({ today }: { today: string }) {
       {/* Total + save — sticky action bar on phones, card on desktop.
           The mobile bottom nav steps aside on this screen, so the bar owns
           the bottom edge: total always visible while scrolling a long entry. */}
-      <div className="sticky bottom-0 z-20 -mx-4 flex items-center justify-between gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur-md md:static md:mx-0 md:flex-wrap md:gap-4 md:rounded-2xl md:border md:p-5 md:shadow-sm">
+      <div className="sticky bottom-0 z-20 -mx-4 flex items-center justify-between gap-3 border-t border-white/10 bg-brand-ink/95 px-4 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.5)] backdrop-blur-md md:static md:mx-0 md:flex-wrap md:gap-4 md:rounded-2xl md:border md:p-5 md:shadow-sm">
         <div className="min-w-0">
-          <p className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500 md:text-xs">
+          <p className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-400 md:text-xs">
             {totals.count} {totals.count === 1 ? "product" : "products"} ·{" "}
             {displayQuantity(String(totals.quantity))} total quantity
           </p>
@@ -756,7 +751,7 @@ export function SalesEntryForm({ today }: { today: string }) {
             <>
               <span
                 aria-hidden="true"
-                className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+                className="h-4 w-4 animate-spin rounded-full border-2 border-brand-ink/30 border-t-brand-ink"
               />
               Saving…
             </>

@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { api, ApiClientError, qs, type Paginated } from "@/lib/api-client";
+import { qs } from "@/lib/api-client";
+import { useCachedPagedApi } from "@/lib/use-cached-api";
 import { displayQuantity } from "@/lib/money";
 import { formatDateTimeInStoreTz } from "@/lib/dates";
+import { EmptyState } from "./empty-state";
+import { PaginationBar } from "./pagination-bar";
 
 /**
  * Stock Movement History (spec §4.9): the audit ledger — why every
@@ -41,43 +44,27 @@ export function MovementsView() {
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
 
-  const [data, setData] = useState<Paginated<Movement> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await api.getPaginated<Movement>(
-        `/api/stock-movements${qs({
-          productId,
-          movementType,
-          from,
-          to,
-          page,
-          pageSize: 25,
-        })}`
-      );
-      setData(result);
-    } catch (err) {
-      setError(
-        err instanceof ApiClientError ? err.message : "Could not load movements."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [productId, movementType, from, to, page]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const {
+    data,
+    loading,
+    error,
+    refresh,
+  } = useCachedPagedApi<Movement>(
+    `/api/stock-movements${qs({
+      productId,
+      movementType,
+      from,
+      to,
+      page,
+      pageSize: 25,
+    })}`
+  );
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
         <div>
-          <label htmlFor="mv-type" className="mb-1 block text-xs font-medium text-slate-600">
+          <label htmlFor="mv-type" className="mb-1 block text-xs font-medium text-slate-400">
             Movement type
           </label>
           <select
@@ -98,7 +85,7 @@ export function MovementsView() {
           </select>
         </div>
         <div>
-          <label htmlFor="mv-product" className="mb-1 block text-xs font-medium text-slate-600">
+          <label htmlFor="mv-product" className="mb-1 block text-xs font-medium text-slate-400">
             Product ID
           </label>
           <input
@@ -114,7 +101,7 @@ export function MovementsView() {
           />
         </div>
         <div>
-          <label htmlFor="mv-from" className="mb-1 block text-xs font-medium text-slate-600">
+          <label htmlFor="mv-from" className="mb-1 block text-xs font-medium text-slate-400">
             From
           </label>
           <input
@@ -129,7 +116,7 @@ export function MovementsView() {
           />
         </div>
         <div>
-          <label htmlFor="mv-to" className="mb-1 block text-xs font-medium text-slate-600">
+          <label htmlFor="mv-to" className="mb-1 block text-xs font-medium text-slate-400">
             To
           </label>
           <input
@@ -163,23 +150,21 @@ export function MovementsView() {
       {loading ? (
         <div className="card animate-pulse space-y-3">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-6 rounded bg-slate-100" />
+            <div key={i} className="h-6 rounded bg-white/10" />
           ))}
         </div>
       ) : error ? (
         <div className="card text-center">
-          <p className="text-sm text-red-700">{error}</p>
-          <button type="button" onClick={load} className="btn-secondary mt-3">
+          <p className="text-sm text-red-300">{error}</p>
+          <button type="button" onClick={refresh} className="btn-secondary mt-3">
             Retry
           </button>
         </div>
       ) : !data || data.items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-          <p className="text-sm font-semibold text-slate-800">No movements found.</p>
-          <p className="mt-1 text-sm text-slate-500">
-            Stock changes (sales, stock-in, corrections) will be listed here.
-          </p>
-        </div>
+        <EmptyState
+          title="No movements found."
+          description="Stock changes (sales, stock-in, corrections) will be listed here."
+        />
       ) : (
         <>
           {/* Phone: stacked cards */}
@@ -196,7 +181,7 @@ export function MovementsView() {
                       >
                         {movement.productName}
                       </Link>
-                      <p className="mt-0.5 text-xs text-slate-500">
+                      <p className="mt-0.5 text-xs text-slate-400">
                         {formatDateTimeInStoreTz(movement.createdAt)} ·{" "}
                         {MOVEMENT_LABELS[movement.movementType] ??
                           movement.movementType}
@@ -204,17 +189,17 @@ export function MovementsView() {
                     </div>
                     <span
                       className={`shrink-0 font-semibold ${
-                        positive ? "text-emerald-700" : "text-red-700"
+                        positive ? "text-emerald-400" : "text-red-400"
                       }`}
                     >
                       {positive ? "+" : ""}
                       {displayQuantity(movement.quantityDelta)}
                     </span>
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-slate-500">
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-slate-400">
                     <span>
                       Stock {displayQuantity(movement.stockBefore)} →{" "}
-                      <span className="font-medium text-slate-700">
+                      <span className="font-medium text-slate-200">
                         {displayQuantity(movement.stockAfter)}
                       </span>
                     </span>
@@ -230,7 +215,7 @@ export function MovementsView() {
                           {" "}
                           <Link
                             href={`/sales/${movement.referenceId}`}
-                            className="font-medium text-sky-700 hover:underline"
+                            className="font-medium text-brand-gold hover:underline"
                           >
                             #{movement.referenceId}
                           </Link>
@@ -246,9 +231,9 @@ export function MovementsView() {
           </ul>
 
           {/* Desktop table */}
-          <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white md:block">
+          <div className="hidden overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.035] md:block">
             <table className="w-full min-w-[860px] text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-white/10 bg-white/[0.04] text-xs uppercase tracking-wide text-slate-400">
                 <tr>
                   <th className="px-3 py-2.5 font-medium">When</th>
                   <th className="px-3 py-2.5 font-medium">Product</th>
@@ -260,12 +245,12 @@ export function MovementsView() {
                   <th className="px-3 py-2.5 font-medium">By</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-white/5">
                 {data.items.map((movement) => {
                   const positive = !movement.quantityDelta.startsWith("-");
                   return (
                     <tr key={movement.id}>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-600">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-xs text-slate-300">
                         {formatDateTimeInStoreTz(movement.createdAt)}
                       </td>
                       <td className="px-3 py-2.5">
@@ -282,19 +267,19 @@ export function MovementsView() {
                       </td>
                       <td
                         className={`px-3 py-2.5 text-right font-semibold ${
-                          positive ? "text-emerald-700" : "text-red-700"
+                          positive ? "text-emerald-400" : "text-red-400"
                         }`}
                       >
                         {positive ? "+" : ""}
                         {displayQuantity(movement.quantityDelta)}
                       </td>
-                      <td className="px-3 py-2.5 text-right text-slate-600">
+                      <td className="px-3 py-2.5 text-right text-slate-300">
                         {displayQuantity(movement.stockBefore)}
                       </td>
-                      <td className="px-3 py-2.5 text-right text-slate-600">
+                      <td className="px-3 py-2.5 text-right text-slate-300">
                         {displayQuantity(movement.stockAfter)}
                       </td>
-                      <td className="px-3 py-2.5 text-xs text-slate-600">
+                      <td className="px-3 py-2.5 text-xs text-slate-300">
                         {movement.note ??
                           (movement.movementType === "sale" ||
                           movement.movementType === "sale_void_reversal"
@@ -306,14 +291,14 @@ export function MovementsView() {
                             {" "}
                             <Link
                               href={`/sales/${movement.referenceId}`}
-                              className="font-medium text-sky-700 hover:underline"
+                              className="font-medium text-brand-gold hover:underline"
                             >
                               #{movement.referenceId}
                             </Link>
                           </>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2.5 text-xs text-slate-600">
+                      <td className="px-3 py-2.5 text-xs text-slate-300">
                         {movement.createdBy}
                       </td>
                     </tr>
@@ -323,31 +308,12 @@ export function MovementsView() {
             </table>
           </div>
 
-          {data.totalPages > 1 ? (
-            <div className="flex items-center justify-between text-sm">
-              <p className="text-xs text-slate-500">
-                Page {data.page} of {data.totalPages} · {data.total} movements
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={page >= data.totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          ) : null}
+          <PaginationBar
+            page={data.page}
+            totalPages={data.totalPages}
+            summary={`Page ${data.page} of ${data.totalPages} · ${data.total} movements`}
+            onPageChange={setPage}
+          />
         </>
       )}
     </div>

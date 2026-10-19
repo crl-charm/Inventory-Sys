@@ -14,7 +14,7 @@ export function PageHeader({
           {title}
         </h1>
         {description ? (
-          <p className="mt-1 text-sm text-slate-600">{description}</p>
+          <p className="mt-1 text-sm text-slate-400">{description}</p>
         ) : null}
       </div>
       {children ? <div className="flex items-center gap-2">{children}</div> : null}

@@ -45,7 +45,7 @@ export function Modal({
         type="button"
         aria-label="Close dialog"
         onClick={onClose}
-        className="animate-fade-in absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]"
+        className="animate-fade-in absolute inset-0 bg-black/60 backdrop-blur-[2px]"
       />
       <div
         ref={panelRef}
@@ -53,11 +53,11 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className="animate-sheet-up relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl outline-none sm:max-w-md sm:animate-scale-in sm:rounded-2xl"
+        className="animate-sheet-up relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-t-3xl border border-white/10 bg-brand-panel p-5 shadow-2xl shadow-black/60 outline-none sm:max-w-md sm:animate-scale-in sm:rounded-2xl"
       >
         <div
           aria-hidden="true"
-          className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden"
+          className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-white/15 sm:hidden"
         />
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 className="text-base font-semibold">{title}</h2>

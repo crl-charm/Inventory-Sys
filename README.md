@@ -82,7 +82,12 @@ Not a POS: it records end-of-day totals, not per-customer receipts.
    when set; otherwise creates `owner` and prints a generated password **once**.
    Re-run any time to change the password.
 
-6. **Run the app** — two terminals:
+6. **Run the app** — easiest is to double-click **`run-app.bat`** in the repo
+   root. It checks MySQL, takes the day's backup, starts both windows, waits
+   until they answer, and opens the browser (it builds the website first if
+   `.next` is missing).
+
+   Manual alternative — two terminals:
 
    ```powershell
    npm run dev:backend    # API at http://localhost:4000
@@ -91,6 +96,9 @@ Not a POS: it records end-of-day totals, not per-customer receipts.
 
    Open <http://localhost:3000> and sign in. The UI proxies `/api/*` to the
    backend so the session cookie stays on the frontend origin.
+
+   After new code arrives (`git pull`), double-click **`update-app.bat`** to
+   pull, install and rebuild — then start the app again.
 
 ## Daily use
 
@@ -117,15 +125,22 @@ stock is restored automatically — then record the corrected entry.
 | `npm run db:init` | Create DB + apply `backend/database/schema.sql` (safe to re-run) |
 | `npm run db:migrate` | Apply versioned migrations to an existing database (safe to re-run) |
 | `npm run db:seed-owner` | Create/update the owner account |
+| `npm run icons` | Regenerate favicon + PWA icons from `frontend/public/logo.svg` |
 | `powershell -ExecutionPolicy Bypass -File backend\scripts\acceptance.ps1` | End-to-end checks (mutates data; needs both servers) |
+| `run-app.bat` (double-click) | MySQL check → daily backup → backend + frontend → browser |
+| `update-app.bat` (double-click) | `git pull` + install + rebuild the website |
+| `scripts\backup-db.bat` | Take a database dump now (kept 14 days) |
+| `scripts\restore-db.bat <dump.sql>` | Restore a dump (asks to confirm) |
 
 ### Render
 
 Create **two Web Services** from this repo:
 
 1. **API** — Root Directory `backend`, build `npm install`, start `npm start`.
-   Set `DB_*`, `AUTH_SECRET`, `APP_TIME_ZONE`, and `FRONTEND_ORIGIN` to the
-   frontend URL (e.g. `https://your-ui.onrender.com`). `FRONTEND_ORIGIN`
+   Set `DB_*`, `AUTH_SECRET`, `APP_TIME_ZONE`, `HOST=0.0.0.0` (the API binds
+   to `127.0.0.1` by default — LAN-only — and a public host must opt in), and
+   `FRONTEND_ORIGIN` to the frontend URL (e.g.
+   `https://your-ui.onrender.com`). `FRONTEND_ORIGIN`
    accepts a comma-separated list, so one API can serve both localhost and a
    LAN address (e.g. `http://localhost:3000,http://192.168.68.102:3000`),
    which is what lets the store phone sign in over Wi-Fi.
@@ -140,10 +155,24 @@ reach (Render Postgres is not a drop-in; this app is MySQL/MariaDB).
 
 ## Backups
 
-Export regularly through phpMyAdmin (**Export**) or `mysqldump`; keep the dump
-outside the XAMPP folder. Details in `database/README.md`.
+The database is your ledger — treat it like one.
 
-Never expose phpMyAdmin or port 3306 to the public internet.
+- **Automatic:** `run-app.bat` takes a backup the first time the app starts
+  each day (skip-worthy: it only runs when no backup exists for today).
+- **Manual:** `scripts\backup-db.bat`  — dated dumps go to
+  `backups\hardware_inventory_YYYY-MM-DD_HH-mm-ss.sql`, and files older than
+  14 days are deleted automatically. Pass `silent` to skip the pause (used by
+  `run-app.bat`).
+- **Restore:** stop the backend window first, then
+  `scripts\restore-db.bat backups\hardware_inventory_....sql` and confirm at
+  the prompt. Start the backend again afterwards.
+- **Off-machine copies:** now and then copy a dump to a USB stick or cloud
+  drive — a backup that only lives on the same PC is not a disaster plan.
+- **Optional schedule:** Windows **Task Scheduler** → daily 20:00 →
+  run `C:\dev\Inventory-sys\scripts\backup-db.bat silent`.
+
+Never expose phpMyAdmin or port 3306 to the public internet. MySQL on this
+machine is bound to `127.0.0.1` only (`bind-address` in `my.ini`).
 
 ---
 

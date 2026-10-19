@@ -19,7 +19,7 @@ export default function SalesPage() {
       <Suspense
         fallback={
           <div className="card animate-pulse">
-            <div className="h-6 rounded bg-slate-100" />
+            <div className="h-6 rounded bg-white/10" />
           </div>
         }
       >

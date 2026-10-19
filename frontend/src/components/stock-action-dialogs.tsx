@@ -90,13 +90,13 @@ function StockInDialog({
   return (
     <Modal open={open} title={`Stock In — ${product.name}`} onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
-        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        <p className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-300">
           On hand: <strong>{displayQuantity(product.stockOnHand)}</strong>{" "}
           {product.unit} at {formatPhp(product.sellingPrice)}
         </p>
         <div>
           <label htmlFor={`si-qty-${product.id}`} className="mb-1 block text-sm font-medium">
-            Quantity received <span className="text-red-600">*</span>
+            Quantity received <span className="text-red-400">*</span>
           </label>
           <input
             id={`si-qty-${product.id}`}
@@ -122,7 +122,7 @@ function StockInDialog({
           />
         </div>
         {error ? (
-          <p role="alert" className="text-sm text-red-600">{error}</p>
+          <p role="alert" className="text-sm text-red-400">{error}</p>
         ) : null}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="btn-secondary">
@@ -190,13 +190,13 @@ function PhysicalCountDialog({
       onClose={onClose}
     >
       <form onSubmit={submit} className="space-y-4">
-        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        <p className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-300">
           System says <strong>{displayQuantity(product.stockOnHand)}</strong>{" "}
           {product.unit}. Count the shelf and enter the real number.
         </p>
         <div>
           <label htmlFor={`pc-qty-${product.id}`} className="mb-1 block text-sm font-medium">
-            Counted quantity <span className="text-red-600">*</span>
+            Counted quantity <span className="text-red-400">*</span>
           </label>
           <input
             id={`pc-qty-${product.id}`}
@@ -207,13 +207,13 @@ function PhysicalCountDialog({
             className="input"
             placeholder="e.g. 18"
           />
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-400">
             Enter exactly what you counted. Zero is valid if nothing is left.
           </p>
         </div>
         <div>
           <label htmlFor={`pc-reason-${product.id}`} className="mb-1 block text-sm font-medium">
-            Reason <span className="text-red-600">*</span>
+            Reason <span className="text-red-400">*</span>
           </label>
           <input
             id={`pc-reason-${product.id}`}
@@ -227,7 +227,7 @@ function PhysicalCountDialog({
           />
         </div>
         {error ? (
-          <p role="alert" className="text-sm text-red-600">{error}</p>
+          <p role="alert" className="text-sm text-red-400">{error}</p>
         ) : null}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="btn-secondary">

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandMark } from "./brand-mark";
+import { InstallAppLink } from "./install-app";
 
 type LoginApiResult =
   | { success: true; data: { user: { id: number } } }
@@ -61,7 +62,7 @@ export function LoginForm() {
       <div className="animate-fade-up relative w-full max-w-sm">
         <div className="mb-9 text-center">
           <div className="animate-scale-in mx-auto mb-5 w-fit">
-            <BrandMark className="h-14 w-14 rounded-2xl text-xl shadow-lg shadow-black/60" />
+            <BrandMark className="h-16 w-16" />
           </div>
           <h1 className="text-xl font-semibold tracking-[0.22em] text-white">
             R GARAGE
@@ -151,9 +152,10 @@ export function LoginForm() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-slate-500">
+        <p className="mt-6 text-center text-xs text-slate-400">
           Single-owner sign-in. No public registration.
         </p>
+        <InstallAppLink />
       </div>
     </main>
   );

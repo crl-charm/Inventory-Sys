@@ -138,6 +138,10 @@ function matchRoute(method: string, pathname: string): { route: Route; params: P
 }
 
 const port = Number(process.env.PORT ?? 4000);
+// LAN-only by default: the Next.js frontend proxies every /api call from
+// localhost, so nothing else needs to reach the API over the network. When
+// deploying to a public host (Render), set HOST=0.0.0.0 there.
+const host = process.env.HOST ?? "127.0.0.1";
 
 const server = createServer((req, res) => {
   void (async () => {
@@ -172,6 +176,6 @@ const server = createServer((req, res) => {
   })();
 });
 
-server.listen(port, () => {
-  console.log(`API listening on http://localhost:${port}`);
+server.listen(port, host, () => {
+  console.log(`API listening on http://${host}:${port}`);
 });

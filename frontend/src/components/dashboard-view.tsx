@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { api, ApiClientError, qs } from "@/lib/api-client";
+import { qs } from "@/lib/api-client";
+import { useCachedApi } from "@/lib/use-cached-api";
 import { displayQuantity, formatPhp } from "@/lib/money";
 import { addDays, formatDateLong, formatDateTimeInStoreTz } from "@/lib/dates";
+import { InstallAppCard } from "./install-app";
 
 /**
  * Dashboard (spec §4.2): sales cards for the selected date and today,
@@ -48,39 +50,21 @@ interface DashboardData {
 
 export function DashboardView({ today }: { today: string }) {
   const [selectedDate, setSelectedDate] = useState(today);
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await api.get<DashboardData>(
-        `/api/dashboard${qs({ date: selectedDate })}`
-      );
-      setData(result);
-    } catch (err) {
-      setError(
-        err instanceof ApiClientError
-          ? err.message
-          : "Could not load the dashboard."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedDate]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const {
+    data,
+    loading,
+    error,
+    refresh,
+  } = useCachedApi<DashboardData>(
+    `/api/dashboard${qs({ date: selectedDate })}`
+  );
 
   const isToday = selectedDate === today;
 
   return (
     <div className="space-y-5">
       {/* Date navigator */}
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.035] p-3">
         <button
           type="button"
           aria-label="Previous day"
@@ -94,7 +78,7 @@ export function DashboardView({ today }: { today: string }) {
           value={selectedDate}
           max={today}
           onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          className="rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2 text-sm text-white shadow-sm transition-all duration-200 hover:border-white/20"
           aria-label="Selected business date"
         />
         <button
@@ -115,9 +99,9 @@ export function DashboardView({ today }: { today: string }) {
             Today
           </button>
         ) : (
-          <span className="px-2 text-sm font-medium text-slate-500">Today</span>
+          <span className="px-2 text-sm font-medium text-slate-400">Today</span>
         )}
-        <span className="ml-1 hidden text-sm text-slate-500 sm:block">
+        <span className="ml-1 hidden text-sm text-slate-400 sm:block">
           {formatDateLong(selectedDate)}
         </span>
         <Link href="/sales/new" className="btn-primary ml-auto max-sm:hidden">
@@ -127,19 +111,21 @@ export function DashboardView({ today }: { today: string }) {
 
       {error ? (
         <div className="card text-center">
-          <p className="text-sm text-red-700">{error}</p>
-          <button type="button" onClick={load} className="btn-secondary mt-3">
+          <p className="text-sm text-red-300">{error}</p>
+          <button type="button" onClick={refresh} className="btn-secondary mt-3">
             Retry
           </button>
         </div>
       ) : loading || !data ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="card h-24 animate-pulse bg-slate-50" />
+            <div key={i} className="card h-24 animate-pulse bg-white/5" />
           ))}
         </div>
       ) : (
         <>
+          {/* Install banner — hides itself once installed or dismissed */}
+          <InstallAppCard />
           {/* Cards */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <StatCard
@@ -193,7 +179,7 @@ export function DashboardView({ today }: { today: string }) {
               </h2>
               {data.productLines.length === 0 ? (
                 <div className="py-8 text-center">
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-slate-300">
                     No sales recorded for this day yet.
                   </p>
                   <Link href="/sales/new" className="btn-primary mt-3">
@@ -203,7 +189,7 @@ export function DashboardView({ today }: { today: string }) {
               ) : (
                 <>
                   {/* Phone: stacked lines so nothing overflows the screen */}
-                  <ul className="mt-2 divide-y divide-slate-100 md:hidden">
+                  <ul className="mt-2 divide-y divide-white/5 md:hidden">
                     {data.productLines.map((line) => (
                       <li
                         key={`${line.productId}-${line.unit}`}
@@ -213,7 +199,7 @@ export function DashboardView({ today }: { today: string }) {
                           <p className="truncate text-sm font-medium">
                             {line.productName}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-slate-400">
                             {displayQuantity(line.quantity)} {line.unit} ×{" "}
                             {formatPhp(
                               perUnitPrice(line.totalAmount, line.quantity)
@@ -226,7 +212,7 @@ export function DashboardView({ today }: { today: string }) {
                         </span>
                       </li>
                     ))}
-                    <li className="flex items-center justify-between border-t-2 border-slate-200 py-2.5 text-sm font-semibold">
+                    <li className="flex items-center justify-between border-t-2 border-white/15 py-2.5 text-sm font-semibold">
                       <span>Total</span>
                       <span>
                         {formatPhp(data.selectedDateTotals.totalSales)}
@@ -237,7 +223,7 @@ export function DashboardView({ today }: { today: string }) {
                   {/* Tablet and up: full table */}
                   <div className="mt-3 hidden overflow-x-auto md:block">
                     <table className="w-full min-w-[480px] text-left text-sm">
-                      <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                      <thead className="border-b border-white/10 text-xs uppercase tracking-wide text-slate-400">
                         <tr>
                           <th className="py-2 pr-3 font-medium">Product</th>
                           <th className="py-2 pr-3 text-right font-medium">Qty sold</th>
@@ -245,19 +231,19 @@ export function DashboardView({ today }: { today: string }) {
                           <th className="py-2 text-right font-medium">Line total</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-white/5">
                         {data.productLines.map((line) => (
                           <tr key={`${line.productId}-${line.unit}`}>
                             <td className="py-2 pr-3">
                               <p className="font-medium">{line.productName}</p>
                               {line.sku ? (
-                                <p className="text-xs text-slate-500">{line.sku}</p>
+                                <p className="text-xs text-slate-400">{line.sku}</p>
                               ) : null}
                             </td>
                             <td className="py-2 pr-3 text-right">
                               {displayQuantity(line.quantity)} {line.unit}
                             </td>
-                            <td className="py-2 pr-3 text-right text-slate-600">
+                            <td className="py-2 pr-3 text-right text-slate-300">
                               {formatPhp(
                                 // price per unit = line total / qty, display-only
                                 perUnitPrice(line.totalAmount, line.quantity)
@@ -270,7 +256,7 @@ export function DashboardView({ today }: { today: string }) {
                         ))}
                       </tbody>
                       <tfoot>
-                        <tr className="border-t-2 border-slate-200 font-semibold">
+                        <tr className="border-t-2 border-white/15 font-semibold">
                           <td className="py-2 pr-3">Total</td>
                           <td />
                           <td />
@@ -291,17 +277,17 @@ export function DashboardView({ today }: { today: string }) {
                 <h2 className="text-sm font-semibold">Low stock to review</h2>
                 <Link
                   href="/inventory?stockStatus=low_stock"
-                  className="text-xs font-medium text-sky-700 hover:underline"
+                  className="text-xs font-medium text-brand-gold hover:underline"
                 >
                   Open inventory
                 </Link>
               </div>
               {data.lowStockProducts.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-500">
+                <p className="mt-3 text-sm text-slate-400">
                   Nothing is low or out of stock. ✓
                 </p>
               ) : (
-                <ul className="mt-3 divide-y divide-slate-100">
+                <ul className="mt-3 divide-y divide-white/5">
                   {data.lowStockProducts.map((product) => (
                     <li
                       key={product.id}
@@ -309,17 +295,17 @@ export function DashboardView({ today }: { today: string }) {
                     >
                       <div className="min-w-0">
                         <p className="truncate font-medium">{product.name}</p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-slate-400">
                           reorder at {displayQuantity(product.reorderLevel)}{" "}
                           {product.unit}
                         </p>
                       </div>
                       {product.stockStatus === "out_of_stock" ? (
-                        <span className="shrink-0 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                        <span className="shrink-0 rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-xs font-semibold text-red-300">
                           OUT
                         </span>
                       ) : (
-                        <span className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                        <span className="shrink-0 rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300">
                           {displayQuantity(product.stockOnHand)} left
                         </span>
                       )}
@@ -339,17 +325,17 @@ export function DashboardView({ today }: { today: string }) {
               <h2 className="text-sm font-semibold">Recent sales entries</h2>
               <Link
                 href="/sales"
-                className="text-xs font-medium text-sky-700 hover:underline"
+                className="text-xs font-medium text-brand-gold hover:underline"
               >
                 View all
               </Link>
             </div>
             {data.recentBatches.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">
+              <p className="mt-3 text-sm text-slate-400">
                 No entries yet. Your first saved entry will appear here.
               </p>
             ) : (
-              <ul className="mt-3 divide-y divide-slate-100">
+              <ul className="mt-3 divide-y divide-white/5">
                 {data.recentBatches.map((batch) => (
                   <li
                     key={batch.id}
@@ -359,12 +345,12 @@ export function DashboardView({ today }: { today: string }) {
                       <p className="font-medium">
                         {formatDateLong(batch.saleDate)}
                         {batch.status === "voided" ? (
-                          <span className="ml-2 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                          <span className="ml-2 rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                             Voided
                           </span>
                         ) : null}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-slate-400">
                         entered {formatDateTimeInStoreTz(batch.createdAt)}
                       </p>
                     </div>
@@ -380,7 +366,7 @@ export function DashboardView({ today }: { today: string }) {
                       </span>
                       <Link
                         href={`/sales/${batch.id}`}
-                        className="text-xs font-medium text-sky-700 hover:underline"
+                        className="text-xs font-medium text-brand-gold hover:underline"
                       >
                         View
                       </Link>
@@ -414,13 +400,13 @@ function StatCard({
   return (
     <div
       className={`animate-fade-up card ${
-        primary ? "border-slate-900/20 bg-slate-900 text-white" : ""
+        primary ? "border-brand-gold/25 bg-brand-gold/[0.10]" : ""
       }`}
       style={{ animationDelay: `${delay}ms` }}
     >
       <p
         className={`text-xs uppercase tracking-wide ${
-          primary ? "text-slate-300" : "text-slate-500"
+          primary ? "text-brand-gold" : "text-slate-400"
         }`}
       >
         {label}
@@ -430,12 +416,12 @@ function StatCard({
         <p
           className={`mt-1 text-xs ${
             primary
-              ? "text-slate-300"
+              ? "text-brand-gold/80"
               : tone === "danger"
-                ? "text-red-600"
+                ? "text-red-400"
                 : tone === "warn"
-                  ? "text-amber-700"
-                  : "text-slate-500"
+                  ? "text-amber-300"
+                  : "text-slate-400"
           }`}
         >
           {hint}

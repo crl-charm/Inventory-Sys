@@ -7,6 +7,10 @@
     "dev:frontend": "npm --prefix frontend run dev",
     "db:init": "npm --prefix backend run db:init",
     "db:migrate": "npm --prefix backend run db:migrate",
-    "db:seed-owner": "npm --prefix backend run db:seed-owner"
+    "db:seed-owner": "npm --prefix backend run db:seed-owner",
+    "icons": "npm --prefix frontend run icons"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5"
   }
 }

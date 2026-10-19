@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "./icons";
 import { BrandMark } from "./brand-mark";
+import { InstallAppMenuItem } from "./install-app";
 import { cn } from "@/lib/cn";
 import type { SessionUser } from "@/types";
 
@@ -65,12 +66,12 @@ export function AppShell({
   return (
     <div className="min-h-screen md:flex">
       {/* Desktop sidebar */}
-      <aside className="print-hidden hidden w-64 shrink-0 border-r border-slate-200 bg-white md:flex md:flex-col">
+      <aside className="print-hidden hidden w-64 shrink-0 border-r border-white/10 bg-white/[0.03] md:flex md:flex-col">
         <SidebarContent user={user} />
       </aside>
 
       {/* Mobile top bar */}
-      <header className="print-hidden sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-slate-200/70 bg-white/85 px-4 py-3 shadow-sm shadow-slate-900/5 backdrop-blur-md md:hidden">
+      <header className="print-hidden sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-brand-ink/85 px-4 py-3 shadow-sm shadow-black/30 backdrop-blur-md md:hidden">
         {recordMode ? (
           <div className="flex min-w-0 items-center gap-1">
             <button
@@ -87,7 +88,7 @@ export function AppShell({
           </div>
         ) : (
           <div className="flex items-center gap-2.5">
-            <BrandMark className="h-8 w-8 rounded-lg text-xs" />
+            <BrandMark className="h-8 w-8" />
             <span className="text-sm font-semibold">{STORE_NAME}</span>
           </div>
         )}
@@ -96,7 +97,7 @@ export function AppShell({
           onClick={() => setMobileOpen(true)}
           aria-label="Open menu"
           aria-expanded={mobileOpen}
-          className="btn-icon border border-slate-200"
+          className="btn-icon border border-white/15"
         >
           <Icon name="menu" />
         </button>
@@ -120,24 +121,24 @@ export function AppShell({
           aria-label="Close menu"
           onClick={() => setMobileOpen(false)}
           className={cn(
-            "absolute inset-0 h-full w-full cursor-default bg-slate-900/50 backdrop-blur-[2px] transition-opacity duration-300 ease-out",
+            "absolute inset-0 h-full w-full cursor-default bg-black/60 backdrop-blur-[2px] transition-opacity duration-300 ease-out",
             mobileOpen ? "opacity-100" : "opacity-0"
           )}
         />
         <div
           className={cn(
-            "absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-white shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            "absolute inset-y-0 left-0 flex w-72 max-w-[85%] flex-col bg-brand-panel shadow-2xl transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
             mobileOpen ? "translate-x-0" : "-translate-x-full"
           )}
         >
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <BrandMark className="h-9 w-9" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold leading-tight">
                   {STORE_NAME}
                 </p>
-                <p className="text-xs text-slate-500">Auto Repair &amp; Motor Oil</p>
+                <p className="text-xs text-slate-400">Auto Repair &amp; Motor Oil</p>
               </div>
             </div>
             <button
@@ -174,7 +175,7 @@ export function AppShell({
       {!recordMode ? (
         <nav
           aria-label="Primary"
-          className="print-hidden fixed inset-x-0 bottom-0 z-30 border-t border-slate-200/70 bg-white/90 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur-md md:hidden"
+          className="print-hidden fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-brand-ink/90 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(0,0,0,0.5)] backdrop-blur-md md:hidden"
         >
           <div className="mx-auto grid h-16 max-w-md grid-cols-5">
             {BOTTOM_TABS.map((tab) => {
@@ -191,7 +192,7 @@ export function AppShell({
                   >
                     <span
                       className={cn(
-                        "absolute -top-4 flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(180deg,#242329_0%,#0a0a0b_75%)] text-brand-gold shadow-lg shadow-slate-900/40 ring-4 ring-slate-50 transition-all duration-200 ease-out group-hover:brightness-110 group-hover:shadow-xl group-hover:shadow-slate-900/40 group-active:scale-90 group-active:brightness-100",
+                        "absolute -top-4 flex h-14 w-14 items-center justify-center rounded-full bg-[linear-gradient(180deg,#242329_0%,#0a0a0b_75%)] text-brand-gold shadow-lg shadow-black/50 ring-4 ring-brand-ink transition-all duration-200 ease-out group-hover:brightness-110 group-hover:shadow-xl group-hover:shadow-black/50 group-active:scale-90 group-active:brightness-100",
                         active && "ring-brand-gold/30"
                       )}
                     >
@@ -203,7 +204,7 @@ export function AppShell({
                     <span
                       className={cn(
                         "text-[10px] font-semibold transition-colors duration-200",
-                        active ? "text-sky-700" : "text-slate-500"
+                        active ? "text-brand-gold" : "text-slate-400"
                       )}
                     >
                       Record
@@ -218,7 +219,7 @@ export function AppShell({
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "flex flex-col items-center justify-center gap-0.5 pt-2 pb-1.5 text-[10px] font-medium transition-colors duration-200",
-                    active ? "text-sky-700" : "text-slate-500 hover:text-slate-900"
+                    active ? "text-brand-gold" : "text-slate-400 hover:text-white"
                   )}
                 >
                   <Icon
@@ -264,13 +265,13 @@ function SidebarContent({
 
   return (
     <>
-      <div className="hidden items-center gap-2.5 border-b border-slate-200 px-5 py-4 md:flex">
+      <div className="hidden items-center gap-2.5 border-b border-white/10 px-5 py-4 md:flex">
         <BrandMark className="h-9 w-9" />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold leading-tight">
             {STORE_NAME}
           </p>
-          <p className="text-xs text-slate-500">Auto Repair &amp; Motor Oil</p>
+          <p className="text-xs text-slate-400">Auto Repair &amp; Motor Oil</p>
         </div>
       </div>
 
@@ -295,9 +296,11 @@ function SidebarContent({
                   ? "transition-all duration-300 ease-out group-data-[drawer=closed]:translate-x-6 group-data-[drawer=closed]:opacity-0"
                   : "transition-all duration-200",
                 active
-                  ? "bg-slate-900 text-white shadow-md shadow-slate-900/15"
-                  : "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
-                isPrimary && !active && "bg-sky-50 text-sky-900 hover:bg-sky-100"
+                  ? "bg-brand-gold/[0.16] text-brand-gold"
+                  : "text-slate-300 hover:bg-white/[0.06] hover:text-white",
+                isPrimary &&
+                  !active &&
+                  "bg-brand-gold/[0.07] text-brand-gold/90 hover:bg-brand-gold/[0.12]"
               )}
             >
               <Icon
@@ -310,21 +313,22 @@ function SidebarContent({
         })}
       </nav>
 
-      <div className="border-t border-slate-200 p-3">
+      <div className="border-t border-white/10 p-3">
+        <InstallAppMenuItem />
         <div className="mb-2 flex items-center gap-3 rounded-xl px-3 py-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-slate-200">
             {user.displayName.slice(0, 1).toUpperCase()}
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{user.displayName}</p>
-            <p className="truncate text-xs text-slate-500">@{user.username}</p>
+            <p className="truncate text-xs text-slate-400">@{user.username}</p>
           </div>
         </div>
         <button
           type="button"
           onClick={handleLogout}
           disabled={loggingOut}
-          className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
+          className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-300 transition-all duration-200 hover:bg-white/[0.06] hover:text-white active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60"
         >
           <Icon name="logout" className="h-5 w-5 shrink-0" />
           {loggingOut ? "Signing out…" : "Sign out"}

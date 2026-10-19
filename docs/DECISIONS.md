@@ -167,4 +167,107 @@ run can never double-shift. `npm run db:migrate` (once, on installs that
 predate this entry; a no-op on fresh ones). The acceptance suite gained two
 regression checks asserting `createdAt` / `voidedAt` are within 5 minutes of
 UTC now — catching this class of bug automatically.
-True
+
+## D-20 - R Garage brand logo and installable PWA
+The shop logo is `frontend/public/logo.svg` (master artwork also kept at
+`Favicon/logo.svg`). `npm run icons` (frontend; exposed at the root too)
+regenerates every icon from it with `@resvg/resvg-js` (dev-only dependency):
+`favicon.svg` cropped to the tile, 192/512 `any` PNGs, a 512 opaque
+`maskable` for Android launcher masks, and the 180 Apple touch icon.
+Outputs are committed, so builds and deploys never run the generator.
+`frontend/src/app/manifest.ts` serves the webmanifest (full name, short name
+"R Garage", black theme `#0a0a0b`, `display: standalone`, `start_url: /`
+which funnels into login/dashboard). `public/sw.js` is a deliberately
+network-only service worker — it caches nothing, so the shop can never be
+shown a stale screen or sales form (the same class as the stale-chunk bug);
+it exists so Chrome offers the full "Install app" on HTTPS. Installability
+needs a secure context: `localhost` on the PC and the future Render HTTPS
+URL install fully; over the shop LAN (`http://<ip>:3000`) iPhone can still
+"Add to Home Screen" (apple-touch icon + web-app metas) and Android only
+creates a shortcut. The login screen, top bar, and sidebar all render this
+logo via the `BrandMark` component.
+
+## D-21 - LAN http is not a secure context (client crypto + error boundary)
+Over the shop LAN (`http://192.168.68.102:3000`) every browser treats the
+origin as insecure, so secure-context-only APIs simply do not exist there.
+`crypto.randomUUID()` was called for the sales form's idempotency key
+(`sales-entry-form.tsx`) and threw `TypeError` the moment the page hydrated
+or finished a save - invisible from `localhost` (always a secure context),
+fatal from the phone or the LAN IP. Client code now uses
+`lib/request-id.ts` (`newRequestId()`): `crypto.randomUUID()` when available,
+otherwise a hand-built RFC 4122 v4 id from `crypto.getRandomValues()` (not
+restricted to secure contexts). Rule: no secure-context-only browser API in
+client code paths that run on the LAN. `app/error.tsx` now provides a
+branded root error boundary (Try again / Go to dashboard) so any future
+uncaught page error replaces the framework's bare screen instead of showing
+it to the shop.
+
+## D-22 - One theme everywhere: near-black + brass across the whole app
+The owner asked for the in-app screens to match the login screen. The light
+working UI is gone: `body` is `--color-brand-ink` with a faint brass/white
+ambient tint, `color-scheme: dark` (native date pickers, selects and
+scrollbars render dark), and the shared utilities in `globals.css` define
+the whole look in one place: `card` (white/3.5% on near-black, white/10
+borders), `input` (dark, brass focus ring), `btn-primary`/`btn-gold` (brass
+gradient, ink text), `btn-secondary` (dark outline), `btn-icon`, and
+`--color-brand-panel` (#121215) for solid elevated surfaces (drawer, modals,
+product picker). Active nav items and links use brass; status chips use
+"color/10 background + color-300 text" so they stay legible on black.
+Reports stay printable: inside `@media print` the `.print-area` subtree is
+forced back to ink-on-paper, so the daily report still prints light.
+
+## D-23 - Hardening, backups, and a small GET cache (optimization pass)
+A ten-item pass requested by the owner (security, rendering, cache,
+maintenance, codebase, mobile):
+
+1. **MySQL bound to `127.0.0.1`** (`C:\xampp1\mysql\bin\my.ini`,
+   `bind-address=127.0.0.1`; the previous file is kept next to it as
+   `my.ini.rgarage-backup`). It previously listened on every interface with a
+   passwordless `root`, so the whole ledger was reachable from the shop
+   Wi-Fi. phpMyAdmin and the app (localhost) are unaffected. Takes effect
+   after MySQL is restarted in the XAMPP Control Panel.
+2. **API bound to `127.0.0.1`** (`backend/src/server.ts`, `HOST` env,
+   default `127.0.0.1`). Only the Next.js proxy must reach it, so the API no
+   longer answers the LAN directly. Public deploys (Render) set
+   `HOST=0.0.0.0`.
+3. **Automatic backups**: `scripts/backup-db.bat` writes a dated mysqldump to
+   `backups/hardware_inventory_YYYY-MM-DD_HH-mm-ss.sql` and keeps 14 days
+   (`silent` argument skips the pause); `scripts/restore-db.bat <dump.sql>`
+   restores with a confirmation prompt. `run-app.bat` runs the backup once
+   per day at startup; a daily Task Scheduler entry is documented in the
+   README as optional. Both scripts use XAMPP's default passwordless `root`;
+   adjust them if that ever changes.
+4. **iOS zoom-on-focus fixed**: iOS Safari zooms the page when a form field
+   smaller than 16px gets focus. `globals.css` forces 16px controls below
+   768px (`!important` beats the smaller text utilities).
+5. **Daily Report fits phones**: the product-lines table (`min-w-[560px]`)
+   renders as a stacked list below `md`; the full table stays for desktop and
+   print (`print:block`).
+6. **Small GET cache** (`frontend/src/lib/use-cached-api.ts`): a
+   stale-while-revalidate cache built on `useSyncExternalStore` (still no
+   data library, per D-12's spirit). Every mount/path change revalidates;
+   revisits paint instantly from memory; a failed background refresh keeps
+   the cached data and stays silent (the next visit retries). Writes call
+   `invalidateApiCache()` — blanket where nothing else is mounted, prefix-
+   scoped where the current screen owns the data — and screens that must
+   update themselves call the hook's `refresh()`. Applied to dashboard,
+   inventory, sales history, stock movements, daily report, and the sales
+   form's product list; mutation screens (save/void/stock/count/product
+   edits) invalidate.
+7. **Service worker caches only immutable assets**: `public/sw.js` stays
+   network-only for pages and API (D-20's guarantee intact), but
+   `/_next/static/*` is cache-first (content-hashed names cannot go stale)
+   and icons/logo are stale-while-revalidate. One cache
+   (`rgarage-static-v1`); old caches are deleted on activate.
+8. **Security headers** (`frontend/next.config.ts`): `poweredByHeader:
+   false`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+   `Referrer-Policy: same-origin`, restrictive `Permissions-Policy`. A CSP
+   is deferred to the public deployment, where it can be tested against
+   Next's inline scripts.
+9. **Launcher v2 / update script**: `run-app.bat` verifies MySQL is running,
+   takes the daily backup, starts both windows, polls `/health` and the
+   login page until they answer, opens the browser, and builds the frontend
+   automatically if `.next` is missing. `update-app.bat` runs `git pull`,
+   installs, and rebuilds after new code lands.
+10. **Shared list-page pieces**: `PaginationBar` (sales history, movements)
+    and `EmptyState` reuse replace hand-rolled copies.

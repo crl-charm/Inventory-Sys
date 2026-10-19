@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Center radial gradient for the background to mimic the subtle lighting -->
+    <radialGradient id="bgGradient" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#2c2c30" />
+      <stop offset="100%" stop-color="#09090a" />
+    </radialGradient>
+    
+    <!-- Linear gradient for the golden 'R' -->
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#dfbb7d" />
+      <stop offset="100%" stop-color="#a47a36" />
+    </linearGradient>
+
+    <!-- Subtle drop shadow to make the 'R' pop from the background -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.6" />
+    </filter>
+  </defs>
+
+  <!-- App-icon style rounded square -->
+  <rect x="32" y="32" width="448" height="448" rx="115" fill="url(#bgGradient)" />
+  
+  <!-- Faint inner border to emulate the 3D rim/edge -->
+  <rect x="33" y="33" width="446" height="446" rx="114" fill="none" stroke="#3a3a3f" stroke-width="2" />
+
+  <!-- The Letter R -->
+  <text x="256" y="278" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="210" fill="url(#goldGradient)" text-anchor="middle" dominant-baseline="middle" filter="url(#dropShadow)">R</text>
+</svg>

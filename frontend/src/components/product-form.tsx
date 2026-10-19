@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiClientError } from "@/lib/api-client";
+import { invalidateApiCache } from "@/lib/use-cached-api";
 import { COMMON_UNITS } from "@/types";
 import type { Product } from "@/types";
 
@@ -98,6 +99,7 @@ export function ProductForm({ mode, product }: ProductFormProps) {
       setCategoryId(String(created.id));
       setShowNewCategory(false);
       setNewCategory("");
+      invalidateApiCache("/api/categories");
     } catch (error) {
       setFormError(
         error instanceof ApiClientError
@@ -135,6 +137,7 @@ export function ProductForm({ mode, product }: ProductFormProps) {
         await api.patch(`/api/products/${product!.id}`, payload);
         router.push("/inventory?updated=1");
       }
+      invalidateApiCache();
       router.refresh();
     } catch (error) {
       if (error instanceof ApiClientError) {
@@ -157,13 +160,13 @@ export function ProductForm({ mode, product }: ProductFormProps) {
       {formError ? (
         <p
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
         >
           {formError}
         </p>
       ) : null}
 
-      <div className="grid gap-5 rounded-2xl border border-slate-200 bg-white p-5 sm:grid-cols-2">
+      <div className="grid gap-5 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_60px_-40px_rgba(0,0,0,0.95)] sm:grid-cols-2">
         <div className="sm:col-span-2">
           <Field label="Product name" required error={fieldError("name")}>
             <input
@@ -213,13 +216,13 @@ export function ProductForm({ mode, product }: ProductFormProps) {
             <button
               type="button"
               onClick={() => setShowNewCategory(true)}
-              className="mt-1 text-xs font-medium text-sky-700 hover:underline"
+              className="mt-1 text-xs font-medium text-brand-gold hover:underline"
             >
               + Add a category
             </button>
           )}
           {categoriesError ? (
-            <p className="mt-1 text-xs text-red-600">{categoriesError}</p>
+            <p className="mt-1 text-xs text-red-400">{categoriesError}</p>
           ) : null}
         </Field>
 
@@ -337,14 +340,14 @@ export function ProductForm({ mode, product }: ProductFormProps) {
             />
           </Field>
         ) : (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs font-medium text-slate-500">
+          <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
+            <p className="text-xs font-medium text-slate-400">
               Stock on hand (read-only)
             </p>
             <p className="mt-1 text-lg font-semibold">
               {product!.stockOnHand.replace(/\.?0+$/, "")} {product!.unit}
             </p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-400">
               Stock changes only through Stock In, Physical Count, or sales.
             </p>
           </div>
@@ -386,14 +389,14 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-slate-700">
+      <label className="mb-1 block text-sm font-medium text-slate-200">
         {label}
-        {required ? <span className="text-red-600"> *</span> : null}
+        {required ? <span className="text-red-400"> *</span> : null}
       </label>
       {children}
-      {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
+      {hint ? <p className="mt-1 text-xs text-slate-400">{hint}</p> : null}
       {error ? (
-        <p role="alert" className="mt-1 text-xs font-medium text-red-600">
+        <p role="alert" className="mt-1 text-xs font-medium text-red-400">
           {error}
         </p>
       ) : null}
