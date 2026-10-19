@@ -1,7 +1,9 @@
 /**
  * npm run db:seed-owner
  *
- * Creates or updates the single owner account. There is no public signup.
+ * Creates or updates a user account — the owner by default, or a staff
+ * account when SEED_OWNER_* is set to that person's details. There is no
+ * public signup.
  *
  * Reads from .env.local (falling back to .env):
  *   SEED_OWNER_USERNAME  (default: owner)

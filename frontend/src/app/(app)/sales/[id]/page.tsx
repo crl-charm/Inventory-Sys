@@ -58,11 +58,11 @@ export default async function SaleDetailPage({
 
       <div className="space-y-4">
         {isVoided ? (
-          <div className="rounded-xl border border-slate-300 bg-slate-100 p-4 text-sm text-slate-700">
-            <p className="font-semibold uppercase tracking-wide text-slate-500">
+          <div className="card text-sm">
+            <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
               Voided
-            </p>
-            <p className="mt-1">
+            </span>
+            <p className="mt-2 text-slate-200">
               Voided by <strong>{sale.voidedBy}</strong>
               {sale.voidedAt
                 ? ` on ${formatDateTimeInStoreTz(sale.voidedAt)}`
@@ -70,7 +70,7 @@ export default async function SaleDetailPage({
               .
             </p>
             {sale.voidReason ? (
-              <p className="mt-1">
+              <p className="mt-1 text-slate-300">
                 Reason: <em>{sale.voidReason}</em>
               </p>
             ) : null}
@@ -112,49 +112,40 @@ export default async function SaleDetailPage({
           </div>
         ) : null}
 
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-3 py-2.5 font-medium">Product (as sold)</th>
-                <th className="px-3 py-2.5 text-right font-medium">Quantity</th>
-                <th className="px-3 py-2.5 text-right font-medium">Unit price</th>
-                <th className="px-3 py-2.5 text-right font-medium">Line total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {sale.items.map((item) => (
-                <tr key={item.id}>
-                  <td className="px-3 py-2.5">
-                    <p className="font-medium">{item.productName}</p>
-                    {item.sku ? (
-                      <p className="text-xs text-slate-500">{item.sku}</p>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2.5 text-right">
-                    {formatQuantityWithUnit(item.quantity, item.unit)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right">
-                    {formatPhp(item.finalUnitPrice)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-semibold">
-                    {formatPhp(item.lineTotal)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold">
-                <td className="px-3 py-3" colSpan={3}>
-                  Batch total
-                </td>
-                <td className="px-3 py-3 text-right">
-                  {formatPhp(sale.totalAmount)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+        <section>
+          <h2 className="text-sm font-semibold">Products (as sold)</h2>
+          <ul className="mt-3 space-y-3">
+            {sale.items.map((item) => (
+              <li
+                key={item.id}
+                className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"
+              >
+                <p className="font-medium">{item.productName}</p>
+                {item.sku ? (
+                  <p className="mt-0.5 text-xs text-slate-400">{item.sku}</p>
+                ) : null}
+                <dl className="mt-3 space-y-1.5 border-t border-white/10 pt-3 text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-slate-400">Quantity</dt>
+                    <dd>{formatQuantityWithUnit(item.quantity, item.unit)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-slate-400">Unit price</dt>
+                    <dd>{formatPhp(item.finalUnitPrice)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3 font-semibold">
+                    <dt>Line total</dt>
+                    <dd>{formatPhp(item.lineTotal)}</dd>
+                  </div>
+                </dl>
+              </li>
+            ))}
+            <li className="flex items-center justify-between gap-3 border-t-2 border-white/15 pt-3 text-sm font-semibold">
+              <span>Batch total</span>
+              <span>{formatPhp(sale.totalAmount)}</span>
+            </li>
+          </ul>
+        </section>
 
         <p className="text-xs text-slate-500">
           Prices and names shown here are the snapshots recorded when this entry
@@ -162,7 +153,7 @@ export default async function SaleDetailPage({
         </p>
 
         {!isVoided ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+          <div className="card text-sm text-slate-400">
             Made a mistake?{" "}
             <CancelSaleButton
               saleId={sale.id}

@@ -80,7 +80,11 @@ Not a POS: it records end-of-day totals, not per-customer receipts.
 
    Uses `SEED_OWNER_USERNAME` / `SEED_OWNER_PASSWORD` from `backend/.env.local`
    when set; otherwise creates `owner` and prints a generated password **once**.
-   Re-run any time to change the password.
+   Re-run any time to change the password. To add an **additional account**
+   (staff), set `SEED_OWNER_USERNAME` / `SEED_OWNER_PASSWORD` /
+   `SEED_OWNER_NAME` to that person's details and run it again — each
+   username is its own row. (Against the cloud database, also set the
+   `DB_*` variables from the Render section, including `DB_SSL`.)
 
 6. **Run the app** — easiest is to double-click **`run-app.bat`** in the repo
    root. It checks MySQL, takes the day's backup, starts both windows, waits
@@ -126,7 +130,7 @@ stock is restored automatically — then record the corrected entry.
 | `npm run db:migrate` | Apply versioned migrations to an existing database (safe to re-run) |
 | `npm run db:import -- <dump.sql> [--database <name>]` | Load a dump into the configured database (local or cloud; obeys `DB_SSL`) |
 | `npm run db:ping` | Check the configured database connection (server, TLS, database exists) |
-| `npm run db:seed-owner` | Create/update the owner account |
+| `npm run db:seed-owner` | Create/update an account (owner or staff) |
 | `npm run icons` | Regenerate favicon + PWA icons from `frontend/public/logo.svg` |
 | `powershell -ExecutionPolicy Bypass -File backend\scripts\acceptance.ps1` | End-to-end checks (mutates data; needs both servers) |
 | `run-app.bat` (double-click) | MySQL check → daily backup → backend + frontend → browser |
