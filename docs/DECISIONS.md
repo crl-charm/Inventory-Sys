@@ -284,11 +284,19 @@ untouched: with `DB_SSL` unset, nothing changes. `npm run db:import --
 <dump.sql>` (new, `scripts/db-import.ts`, verified against a scratch
 database) loads any `backup-db.bat` dump into the configured server — it is
 how the shop's data moves to the cloud host, and it can restore anywhere
-else the app can connect. The process environment wins over `.env.local`,
-so a cloud import needs no permanent config changes on the shop PC. The
-Render layout stays D-18's two Web Services; there the API additionally
-needs `NODE_ENV=production` (login cookie gets `Secure` over HTTPS) and
-`HOST=0.0.0.0` (D-23's loopback default is LAN-only), and the UI needs
-`BACKEND_URL`. Aiven's free plan powers the service off after long
-inactivity (email warning + power-on button) — daily use keeps it awake.
-README has the click-by-click.
+else the app can connect. An optional `--database <name>` redirects the
+dump into a different database — its CREATE DATABASE is skipped and its
+USE statement rewritten — which is how a dump lands in a provider's fixed
+database (Aiven's free plan: `defaultdb`). The process environment wins
+over `.env.local`, so a cloud import needs no permanent config changes on
+the shop PC. The Render layout stays D-18's two Web Services; there the
+API additionally needs `NODE_ENV=production` (login cookie gets `Secure`
+over HTTPS) and `HOST=0.0.0.0` (D-23's loopback default is LAN-only), and
+the UI needs `BACKEND_URL`. A `render.yaml` blueprint (repo root,
+validated against Render's published JSON schema) commits all of that:
+both free services in Singapore, `/health` check, Render-generated
+`AUTH_SECRET`, `DB_SSL` pre-set, and the two services cross-wired via
+`RENDER_EXTERNAL_URL` — deploying is *New + → Blueprint → Apply* with four
+prompted database secrets. Aiven's free plan powers the service off after
+long inactivity (email warning + power-on button) — daily use keeps it
+awake. README has the click-by-click.

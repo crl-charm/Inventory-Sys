@@ -124,7 +124,8 @@ stock is restored automatically — then record the corrected entry.
 | `npm run dev:frontend` | Start the UI on port 3000 |
 | `npm run db:init` | Create DB + apply `backend/database/schema.sql` (safe to re-run) |
 | `npm run db:migrate` | Apply versioned migrations to an existing database (safe to re-run) |
-| `npm run db:import -- <dump.sql>` | Load a dump into the configured database (local restore or cloud upload; obeys `DB_SSL`) |
+| `npm run db:import -- <dump.sql> [--database <name>]` | Load a dump into the configured database (local or cloud; obeys `DB_SSL`) |
+| `npm run db:ping` | Check the configured database connection (server, TLS, database exists) |
 | `npm run db:seed-owner` | Create/update the owner account |
 | `npm run icons` | Regenerate favicon + PWA icons from `frontend/public/logo.svg` |
 | `powershell -ExecutionPolicy Bypass -File backend\scripts\acceptance.ps1` | End-to-end checks (mutates data; needs both servers) |
@@ -148,16 +149,34 @@ an email; there is a power-on button in their console), and daily app use
 keeps it awake. Prefer to not think about it? DigitalOcean Managed MySQL
 (~$15/mo) is the no-fuss paid option; any MySQL 8 endpoint works.
 
+**Fast path — apply the `render.yaml` blueprint** (recommended):
+
+1. Get the database values first (Aiven setup below, or any managed MySQL):
+   host, port, password, and the provider's `ca.pem`.
+2. Render Dashboard → *New +* → **Blueprint** → select this repo. Render
+   reads `render.yaml` and prompts for the database secrets (`DB_HOST`,
+   `DB_PORT`, `DB_PASSWORD`, `DB_SSL_CA` — paste `ca.pem`; one line with
+   `\n` escapes works). `DB_USER` (`avnadmin`) and `DB_NAME` (`defaultdb`)
+   are pre-filled for Aiven's free plan — change them if yours differ.
+3. Click **Apply**. Render creates `rgarage-api` and `rgarage-web` on the
+   free plan in Singapore, generates `AUTH_SECRET`, sets `HOST`,
+   `NODE_ENV` and `DB_SSL`, and points `FRONTEND_ORIGIN` and `BACKEND_URL`
+   at each other automatically. Pushes to `main` auto-deploy from then on.
+
+The manual walkthrough below produces the same result step by step — use it
+to understand the pieces, or if you don't apply the blueprint:
+
 1. **Create the database (Aiven).** aiven.io → new **MySQL** service (pick
-   Singapore, the closest region). In the service's **Databases** tab add a
-   database named `hardware_inventory`. From **Overview** note the host,
-   port, user (`avnadmin`) and password, and download the **CA certificate**
-   (`ca.pem`).
+   Singapore, the closest region). Aiven pre-creates a database called
+   `defaultdb`; free plans may not allow adding another — that is fine, use
+   `defaultdb` (the import command and `DB_NAME` below assume it). From
+   **Overview** note the host, port, user (`avnadmin`) and password, and
+   download the **CA certificate** (`ca.pem`).
 2. **API service.** Render → *New → Web Service* → connect this repo.
    Root Directory `backend`, Build `npm install`, Start `npm start`, Health
    Check Path `/health`. Environment:
-   - `DB_HOST`, `DB_PORT`, `DB_NAME=hardware_inventory`, `DB_USER`,
-     `DB_PASSWORD` — the values from step 1
+   - `DB_HOST`, `DB_PORT`, `DB_NAME=defaultdb`, `DB_USER`, `DB_PASSWORD` —
+     the values from step 1
    - `DB_SSL=true` (managed MySQL requires TLS); optionally `DB_SSL_CA` =
      contents of `ca.pem` to also verify the server certificate (if the
      dashboard strips line breaks, write each break as `\n` — both forms
@@ -184,7 +203,7 @@ keeps it awake. Prefer to not think about it? DigitalOcean Managed MySQL
    $env:DB_HOST="<host>"; $env:DB_PORT="<port>"; $env:DB_USER="avnadmin"; $env:DB_PASSWORD="<password>"
    $env:DB_SSL="true"
    $env:DB_SSL_CA = Get-Content "$HOME\Downloads\ca.pem" -Raw
-   npm run db:import -- "..\backups\hardware_inventory_<stamp>.sql"
+   npm run db:import -- "..\backups\hardware_inventory_<stamp>.sql" --database defaultdb
    ```
 
    The dump carries users, products, sales and migration history — nothing
@@ -219,6 +238,8 @@ The database is your ledger — treat it like one.
 - **Restore / upload to a remote database** (e.g. the Render deployment):
   point `DB_*` at that server — plus `DB_SSL=true` when it requires TLS —
   and run `npm run db:import -- ..\backups\hardware_inventory_....sql`.
+  Add `--database <name>` when the target's database name differs from the
+  dump's (Aiven's free plan: `defaultdb`).
 - **Off-machine copies:** now and then copy a dump to a USB stick or cloud
   drive — a backup that only lives on the same PC is not a disaster plan.
 - **Optional schedule:** Windows **Task Scheduler** → daily 20:00 →

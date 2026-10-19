@@ -13,6 +13,12 @@
  * (e.g. in the provider's console) — "CREATE DATABASE IF NOT EXISTS" then
  * simply clears that step.
  *
+ * Optional: `--database <name>` redirects the dump into a different database
+ * than the one embedded in the file — for providers that only offer a fixed
+ * database (Aiven's free plan: `defaultdb`). In that mode the dump's
+ * CREATE DATABASE is skipped (the target must already exist) and its USE
+ * statement is rewritten to the target.
+ *
  * Reads DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_SSL / DB_SSL_CA from
  * .env.local (falling back to .env); the process environment wins, so a
  * one-off import can override everything, e.g. in PowerShell:
@@ -59,20 +65,51 @@ function sslOption(): undefined | { ca?: string; rejectUnauthorized: boolean } {
 }
 
 async function main(): Promise<void> {
-  const fileArg = process.argv[2];
-  if (!fileArg) {
-    console.error("Usage: npm run db:import -- <path-to-dump.sql>");
+  const args = process.argv.slice(2);
+
+  let dumpArg: string | undefined;
+  let targetDatabase: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--database") {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        console.error("✗ --database needs a name, e.g. --database defaultdb");
+        process.exitCode = 1;
+        return;
+      }
+      targetDatabase = value;
+      i++;
+    } else if (arg?.startsWith("--database=")) {
+      targetDatabase = arg.slice("--database=".length);
+    } else if (arg && !dumpArg) {
+      dumpArg = arg;
+    }
+  }
+
+  if (!dumpArg) {
+    console.error(
+      "Usage: npm run db:import -- <path-to-dump.sql> [--database <name>]"
+    );
     process.exitCode = 1;
     return;
   }
-  const dumpPath = resolve(process.cwd(), fileArg);
+  if (targetDatabase !== undefined && !/^[A-Za-z0-9_$]+$/.test(targetDatabase)) {
+    console.error(
+      `✗ Invalid database name "${targetDatabase}" (letters, digits, _ and $ only).`
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const dumpPath = resolve(process.cwd(), dumpArg);
   if (!existsSync(dumpPath)) {
     console.error(`✗ Dump file not found: ${dumpPath}`);
     process.exitCode = 1;
     return;
   }
 
-  const sqlText = readFileSync(dumpPath, "utf8");
+  let sqlText = readFileSync(dumpPath, "utf8");
   if (/^\s*DELIMITER /m.test(sqlText)) {
     console.error(
       "✗ This dump contains DELIMITER blocks (stored routines/triggers);\n" +
@@ -80,6 +117,27 @@ async function main(): Promise<void> {
     );
     process.exitCode = 1;
     return;
+  }
+
+  if (targetDatabase !== undefined) {
+    const useStatement = /^USE `[^`]+`;$/m;
+    if (!useStatement.test(sqlText)) {
+      console.error(
+        "✗ --database was given, but the dump has no USE statement to redirect\n" +
+          "  (it was probably made without mysqldump --databases)."
+      );
+      process.exitCode = 1;
+      return;
+    }
+    // Land the dump in the provider's database: skip its CREATE DATABASE
+    // (the target already exists — free plans may forbid creating more)
+    // and point USE at the target.
+    sqlText = sqlText
+      .replace(
+        /^CREATE DATABASE .*;$/m,
+        "-- CREATE DATABASE skipped: target database already exists (--database given)"
+      )
+      .replace(useStatement, () => `USE \`${targetDatabase}\`;`);
   }
 
   const host = process.env.DB_HOST ?? "127.0.0.1";
@@ -111,7 +169,11 @@ async function main(): Promise<void> {
 
   try {
     console.log(`Importing ${dumpPath}`);
-    console.log(`  into ${host}:${port} ...`);
+    console.log(
+      targetDatabase !== undefined
+        ? `  into ${host}:${port} / \`${targetDatabase}\` ...`
+        : `  into ${host}:${port} ...`
+    );
     // The dump is a single stream of ;-separated statements (routines and
     // triggers were rejected above), so one multi-statement query applies
     // the whole file in order.
