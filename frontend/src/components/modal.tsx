@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Minimal accessible modal: Escape closes, backdrop click closes, focus is
@@ -21,6 +22,11 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Keep the latest close handler without re-running the focus/scroll effect
   // on every parent render. Typing in an input inside the dialog re-renders
@@ -31,7 +37,7 @@ export function Modal({
   }, [onClose]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !mounted) return;
     const previous = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
     function onKeyDown(event: KeyboardEvent) {
@@ -44,12 +50,15 @@ export function Modal({
       document.body.style.overflow = "";
       previous?.focus();
     };
-  }, [open]);
+  }, [open, mounted]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center p-0 sm:items-center sm:p-4">
+  // Render at body level. Page content animates with a transform, which would
+  // otherwise trap this fixed overlay in that stacking context and let the
+  // mobile bottom nav sit on top of the dialog.
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
       <button
         type="button"
         aria-label="Close dialog"
@@ -62,7 +71,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         tabIndex={-1}
-        className="animate-sheet-up relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-t-3xl border border-white/10 bg-brand-panel p-5 shadow-2xl shadow-black/60 outline-none sm:max-w-md sm:animate-scale-in sm:rounded-2xl"
+        className="animate-sheet-up relative z-10 max-h-[90vh] w-full overflow-y-auto rounded-t-3xl border border-white/10 bg-brand-panel p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl shadow-black/60 outline-none sm:max-w-md sm:animate-scale-in sm:rounded-2xl sm:pb-5"
       >
         <div
           aria-hidden="true"
@@ -90,6 +99,7 @@ export function Modal({
         {children}
         {footer ? <div className="mt-5 flex justify-end gap-2">{footer}</div> : null}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
