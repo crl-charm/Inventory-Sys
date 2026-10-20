@@ -7,10 +7,12 @@ import type { RetryPolicy } from "./retry";
  *
  *   UPSTREAM_TIMEOUT_MS       per attempt            (default 45000)
  *   UPSTREAM_TOTAL_BUDGET_MS  whole call             (default 90000)
- *   UPSTREAM_MAX_ATTEMPTS     tries for safe calls   (default 4)
+ *   UPSTREAM_MAX_ATTEMPTS     tries for safe calls   (default 15)
  *
  * A sleeping Render free service needs roughly 30–60 s to wake, so one
- * attempt must be allowed to run that long.
+ * attempt must be allowed to run that long. Render can also answer an
+ * instant 502/503/504 while the API is restarting; 15 attempts with the 8 s
+ * backoff cap span the whole budget instead of giving up after a few seconds.
  */
 function envInt(name: string, fallback: number, min: number, max: number): number {
   const parsed = Number(process.env[name]);
@@ -20,7 +22,7 @@ function envInt(name: string, fallback: number, min: number, max: number): numbe
 
 export function upstreamPolicy(replaySafe: boolean): RetryPolicy {
   return {
-    maxAttempts: replaySafe ? envInt("UPSTREAM_MAX_ATTEMPTS", 4, 1, 6) : 3,
+    maxAttempts: replaySafe ? envInt("UPSTREAM_MAX_ATTEMPTS", 15, 1, 30) : 3,
     timeoutMs: envInt("UPSTREAM_TIMEOUT_MS", 45_000, 1_000, 120_000),
     totalBudgetMs: envInt("UPSTREAM_TOTAL_BUDGET_MS", 90_000, 1_000, 180_000),
     baseDelayMs: 500,

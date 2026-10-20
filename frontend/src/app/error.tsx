@@ -1,7 +1,6 @@
 "use client";
 
-import { startTransition, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { Icon } from "@/components/icons";
 
 /**
@@ -11,24 +10,19 @@ import { Icon } from "@/components/icons";
  */
 export default function Error({
   error,
-  reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const router = useRouter();
-
   useEffect(() => {
     console.error(error);
   }, [error]);
 
-  // For errors thrown while a server component loaded data, reset() alone
-  // re-renders the old failure. Refresh first so the server runs again.
+  // A full reload is deliberate. router.refresh() + reset() can re-render the
+  // same failed server payload, which made the button look dead. The plain
+  // "Go to dashboard" link always worked because it makes a fresh request.
   function retry() {
-    startTransition(() => {
-      router.refresh();
-      reset();
-    });
+    window.location.reload();
   }
 
   return (

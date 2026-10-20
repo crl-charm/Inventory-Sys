@@ -55,6 +55,29 @@ describe("fetchWithRetry — safe (replay-safe) requests", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
+  it("outlasts a burst of instant 5xx responses during a cold start", async () => {
+    let calls = 0;
+    const fetchImpl = vi.fn(async () => {
+      calls += 1;
+      return calls <= 8 ? res(502) : res(200);
+    });
+    const response = await fetchWithRetry(
+      "http://api/x",
+      {},
+      {
+        maxAttempts: 15,
+        timeoutMs: 1000,
+        totalBudgetMs: 90_000,
+        baseDelayMs: 100,
+        maxDelayMs: 8000,
+        mode: "replay-safe",
+      },
+      hooks(fetchImpl)
+    );
+    expect(response.status).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledTimes(9);
+  });
+
   it("throws UpstreamUnavailableError after repeated network failures", async () => {
     const fetchImpl = vi.fn().mockRejectedValue(netError("ECONNRESET"));
     await expect(fetchWithRetry("http://api/x", {}, policy, hooks(fetchImpl))).rejects.toBeInstanceOf(

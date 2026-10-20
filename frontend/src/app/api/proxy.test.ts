@@ -17,6 +17,9 @@ function call(handler: typeof GET, method: string, path: string, body?: unknown)
 beforeEach(() => {
   vi.stubEnv("BACKEND_URL", "https://api.test");
   vi.stubEnv("UPSTREAM_TIMEOUT_MS", "2000");
+  // Keep the failure-path tests fast; the 15-attempt cold-start window is
+  // covered by upstream.test.ts / retry.test.ts.
+  vi.stubEnv("UPSTREAM_MAX_ATTEMPTS", "4");
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 afterEach(() => {

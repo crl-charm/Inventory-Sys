@@ -56,13 +56,13 @@ const UNAVAILABLE_MESSAGE =
 
 /**
  * Browser → Next.js server. The server-side proxy already retries the API, so
- * the browser only adds a small safety net for GETs (e.g. the Next.js service
- * itself was asleep) and a hard timeout for everything. Writes are never
+ * the browser only adds a safety net for GETs (e.g. the Next.js service itself
+ * was asleep or restarting) and a hard timeout for everything. Writes are never
  * repeated here: the user presses Save/Retry again, and forms that matter
  * (sales) reuse their idempotency key.
  */
 const READ_POLICY: RetryPolicy = {
-  maxAttempts: 2,
+  maxAttempts: 4,
   timeoutMs: 100_000,
   totalBudgetMs: 150_000,
   baseDelayMs: 1_500,

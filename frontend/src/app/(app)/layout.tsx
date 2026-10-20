@@ -1,18 +1,20 @@
-import { redirect } from "next/navigation";
-import { backendGet } from "@/lib/backend";
-import { AppShell } from "@/components/app-shell";
-import type { SessionUser } from "@/types";
+import { Suspense } from "react";
+import { AuthGate } from "./auth-gate";
+import { WakingUp } from "@/components/waking-up";
 
 /**
- * Protected app layout: verifies the session via the API and renders the
- * navigation shell. Hiding nav links is not authorization — every write API
+ * Protected app layout. AuthGate is async, so it lives inside Suspense: while
+ * the API wakes (Render free can take 30-60 s), the branded WakingUp screen is
+ * streamed immediately instead of leaving the browser blank or showing the
+ * error boundary. Hiding nav links is not authorization — every write API
  * re-checks the session (spec §17).
  */
-export default async function AppLayout({
+export default function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const { user } = await backendGet<{ user: SessionUser }>("/api/auth/me");
-  if (!user) redirect("/login");
-
-  return <AppShell user={user}>{children}</AppShell>;
+  return (
+    <Suspense fallback={<WakingUp />}>
+      <AuthGate>{children}</AuthGate>
+    </Suspense>
+  );
 }

@@ -1,14 +1,18 @@
 # Render wake-up plan — make the web URL "just work"
 
-Status: **B implemented locally, C awaiting setup** (2026-10-20).
+Status: **D-27 fast-502 fix verified locally, awaiting push; C awaiting setup**
+(2026-10-20).
 
 - **A** — resilience patch D-25: committed and deployed (`0164f8b`);
   `/ready` returns 200.
-- **B** — `frontend/src/instrumentation.ts` + 4 tests: done, ready to push.
+- **B** — `frontend/src/instrumentation.ts` + 4 tests: deployed; Render log
+  shows `startup_wake status:200`.
+- **D** — D-27 fast-502 retry window + waking screen: implemented and verified
+  locally (46/46 tests); ready to push.
 - **C** — create the external monitor using §6: owner action.
 
-Decision: **A + B + C**, with the API warm **06:00–22:00 Asia/Manila** on the
-free plan.
+Decision: **A + B + C + D**, with the API warm **06:00–22:00 Asia/Manila** on
+the free plan.
 
 Goal: a client opens `https://rgarage-web.onrender.com`, sees the login
 screen, signs in, and lands on the dashboard — without anyone first opening
@@ -40,20 +44,24 @@ browser ──► rgarage-web (Next.js) ──► rgarage-api (Node) ──► A
 Cold-start cost today, worst case: **web boot + API boot ≈ 1–2 minutes**, and
 before the patch the UI showed a misleading error screen during it.
 
-### What the resilience patch (D-25) already fixes
+### What the resilience fixes handle
 
-With the patch now deployed, the API **starts automatically** — no manual API
+Together, D-25 and D-27 make the API **start automatically** — no manual API
 URL visit:
 
 - the login page sends a fire-and-forget `GET /health` to the API as soon as
   it renders;
 - the proxy retries a sleeping/restarting API for up to ~90 s with backoff;
-- server-rendered pages (`/dashboard`, etc.) retry too;
+- read retries now cover **instant 502s** for the whole window (15 attempts
+  instead of 4, which only lasted ~2.5 s in the 06:12 incident);
+- server-rendered pages (`/dashboard`, etc.) retry too, and the protected
+  layout streams a branded "Waking up the server" screen immediately instead
+  of a blank page or the error boundary;
 - if the wait is too long, the user sees "server is starting up — press
   Retry" instead of a JSON/SyntaxError crash.
 
-So after deploying, **opening the web URL already starts the API by itself**.
-What the patch cannot remove is the waiting time itself.
+So once D-27 is deployed, **opening the web URL already starts the API by
+itself**. What the patches cannot remove is the waiting time itself.
 
 ---
 
@@ -215,6 +223,9 @@ Notes:
 - [x] `https://rgarage-api.onrender.com/ready` → 200 `{"status":"ready"}`
       (verified 2026-10-20)
 - [x] `/health` → `ok` (verified 2026-10-20)
+- [x] Fast-502 regression: a mock API returned 502 for 6 s; the proxy returned
+      200 after 6.1 s and the dashboard page rendered after 6.58 s, with the
+      waking screen at 0.17 s — no error screen (verified 2026-10-20)
 - [ ] API logs: `server_started`, `startup_db_check reachable:true`
 
 **Cold start, before any pinger**

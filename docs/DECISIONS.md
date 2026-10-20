@@ -364,3 +364,36 @@ the entry point, so the web must wake first; the API cannot start before it.
 - Verified: 4 unit tests; production `next start` against a mock API logged
   `startup_wake status:200` and the mock received `/health` before the first
   page was served. Plan and setup steps: `docs/RENDER_WAKEUP_PLAN.md`.
+
+## D-27 - Retry instant 502s for the whole wake-up budget
+
+The D-25 policy allowed four read attempts. A real 06:12 dashboard load
+returned instant HTML 502s from Render's edge while the API restarted; the
+four attempts were spent in about 2.5 s and the page hit the error boundary
+before the API finished waking. The reliability guide's own note 6 flagged
+this gap: fast refusals only covered 3-6 s.
+
+- Read/replay-safe `UPSTREAM_MAX_ATTEMPTS` now defaults to 15 (was 4) and is
+  clamped 1-30 (was 1-6). With the 8 s backoff cap, 15 attempts span the 90 s
+  `UPSTREAM_TOTAL_BUDGET_MS`.
+- Writes keep 3 attempts and pre-send-only retry rules; an HTTP 502 is never
+  replayed for a stock change, void or other non-idempotent write.
+- The browser's GET safety net rises from 2 to 4 attempts for an instant 502
+  from the Next.js service itself; responses already marked
+  `x-upstream-exhausted` are still not retried.
+- Render env: remove any `UPSTREAM_MAX_ATTEMPTS` override below 15 (or set it
+  to 15); otherwise the old value wins. Keep `UPSTREAM_TOTAL_BUDGET_MS=90000`.
+- The protected layout now wraps the async auth check (`auth-gate.tsx`) in
+  Suspense with a branded `WakingUp` fallback. During the retry window the
+  browser gets the wake-up screen immediately instead of a blank page or the
+  error boundary.
+- The error screen's **Try again** button now performs a full reload. The old
+  `router.refresh()` + `reset()` combination could re-render the same failed
+  server payload and look dead; the plain dashboard link already worked because
+  it makes a fresh request.
+- Verified: 46/46 frontend tests; a local production run against a mock API
+  that answered 502 for the first 6 s returned 200 after 6.1 s for the proxy
+  and rendered the dashboard after 6.58 s, with the waking screen's first byte
+  at 0.17 s. The old four-attempt policy failed at about 2.5 s.
+- The external 06:00-22:00 keep-alive (D-26) remains the preventive fix: with
+  the API already warm, this retry window is only the safety net.

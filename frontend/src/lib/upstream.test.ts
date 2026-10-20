@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveBackendUrl, BackendConfigError } from "./backend-url";
-import { isReplaySafe } from "./upstream";
+import { isReplaySafe, upstreamPolicy } from "./upstream";
 
 const json = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).buffer as ArrayBuffer;
 
@@ -48,5 +48,20 @@ describe("resolveBackendUrl", () => {
     expect(() => resolveBackendUrl({ RENDER: "true" })).toThrow(BackendConfigError);
     expect(() => resolveBackendUrl({ RENDER: "true", BACKEND_URL: "not a url" })).toThrow(/valid URL/);
     expect(() => resolveBackendUrl({ RENDER: "true", BACKEND_URL: "http://localhost:4000" })).toThrow(/localhost/);
+  });
+});
+
+describe("upstreamPolicy", () => {
+  it("allows enough read attempts to cover a cold-start burst", () => {
+    const saved = process.env.UPSTREAM_MAX_ATTEMPTS;
+    delete process.env.UPSTREAM_MAX_ATTEMPTS;
+    try {
+      const policy = upstreamPolicy(true);
+      expect(policy.maxAttempts).toBeGreaterThanOrEqual(15);
+      expect(policy.totalBudgetMs).toBeGreaterThanOrEqual(90_000);
+    } finally {
+      if (saved === undefined) delete process.env.UPSTREAM_MAX_ATTEMPTS;
+      else process.env.UPSTREAM_MAX_ATTEMPTS = saved;
+    }
   });
 });
