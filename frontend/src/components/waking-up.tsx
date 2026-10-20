@@ -2,10 +2,16 @@
  * Shown while the protected layout waits for the API to answer `/api/auth/me`.
  * On Render's free plan the API can take 30-60 s to wake; without this
  * fallback the browser would sit on a blank page until the retry budget ends.
+ *
+ * `data-waking` is also used by WakeWatchdog, which provides a way out if
+ * this fallback is still on screen well past the normal retry budget.
  */
 export function WakingUp() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-brand-ink px-4 py-10">
+    <main
+      data-waking="true"
+      className="flex min-h-screen items-center justify-center bg-brand-ink px-4 py-10"
+    >
       <div
         className="animate-fade-up w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.035] p-6 text-center shadow-[0_30px_70px_-30px_rgba(0,0,0,0.9)] motion-reduce:animate-none"
         style={{ animationDelay: "1s" }}

@@ -75,6 +75,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Everything else (pages, API): straight to the network, never cached.
-  event.respondWith(fetch(request));
+  // Everything else (pages, API): let the browser go straight to the network.
+  // Do NOT wrap this in respondWith(fetch(...)): if the request fails (for
+  // example a server component stream dropping while the API is retrying), a
+  // rejected respondWith becomes a network error for the whole navigation and
+  // the previous screen can stay stuck instead of React showing the error
+  // boundary. Returning here is the true network-only behaviour.
+  return;
 });

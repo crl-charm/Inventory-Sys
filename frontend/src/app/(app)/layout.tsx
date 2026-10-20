@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { AuthGate } from "./auth-gate";
 import { WakingUp } from "@/components/waking-up";
+import { WakeWatchdog } from "@/components/wake-watchdog";
 
 /**
  * Protected app layout. AuthGate is async, so it lives inside Suspense: while
@@ -13,8 +14,11 @@ export default function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <Suspense fallback={<WakingUp />}>
-      <AuthGate>{children}</AuthGate>
-    </Suspense>
+    <>
+      <WakeWatchdog />
+      <Suspense fallback={<WakingUp />}>
+        <AuthGate>{children}</AuthGate>
+      </Suspense>
+    </>
   );
 }

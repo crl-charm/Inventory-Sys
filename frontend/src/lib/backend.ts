@@ -13,6 +13,24 @@ const UNAVAILABLE_MESSAGE =
   "The server is starting up or temporarily unavailable. Please wait a few seconds and try again.";
 
 /**
+ * The API did not answer (sleeping, starting, or a proxy error page). Callers
+ * that can show a waking screen should catch this instead of letting it become
+ * a server-render error; auth redirects and real API errors still propagate.
+ */
+export class BackendUnavailableError extends Error {
+  constructor() {
+    super(UNAVAILABLE_MESSAGE);
+    this.name = "BackendUnavailableError";
+  }
+}
+
+export function isBackendUnavailable(
+  error: unknown
+): error is BackendUnavailableError {
+  return error instanceof BackendUnavailableError;
+}
+
+/**
  * Server-side GET to the API (used by page layouts). Reads are replay-safe, so
  * they use the same timeout + backoff policy as the /api proxy. A sleeping API
  * therefore delays the page instead of crashing it, and a dead one produces a
@@ -38,7 +56,7 @@ export async function backendGet<T>(path: string): Promise<T> {
         path, kind: error.kind, code: error.code, attempts: error.attempts,
       });
     }
-    throw new Error(UNAVAILABLE_MESSAGE);
+    throw new BackendUnavailableError();
   }
 
   if (response.status === 401) redirect("/login");
@@ -50,7 +68,7 @@ export async function backendGet<T>(path: string): Promise<T> {
   } catch {
     // Not JSON (e.g. a proxy's HTML error page while the API wakes up).
     log("error", "backend_get_non_json", { path, status: response.status });
-    throw new Error(UNAVAILABLE_MESSAGE);
+    throw new BackendUnavailableError();
   }
   if (!payload.success) {
     if (payload.error.code === "NOT_FOUND") notFound();

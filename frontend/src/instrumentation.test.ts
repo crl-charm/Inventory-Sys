@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { register } from "./instrumentation";
+import { register, wakeApi } from "./instrumentation";
 
 beforeEach(() => {
   vi.stubEnv("LOG_LEVEL", "error");
@@ -59,5 +59,24 @@ describe("instrumentation register", () => {
     clearTimeout(timer);
 
     expect(result).toBe("returned");
+  });
+
+  it("keeps pinging a 502 API and stops once it is healthy", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response("bad gateway", { status: 502 }))
+        .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = wakeApi("https://api.test");
+      await vi.advanceTimersByTimeAsync(2_000);
+      await pending;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

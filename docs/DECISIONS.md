@@ -350,6 +350,7 @@ the entry point, so the web must wake first; the API cannot start before it.
   before Next.js serves requests, so the ping is never awaited. The existing
   login-page ping (D-25) stays as a fallback. A bad `BACKEND_URL` logs
   `startup_wake_skipped`; the actionable error still appears on the first page.
+  D-28 later extends this one ping to a 10-minute retry loop.
 - The API is kept warm 06:00-22:00 Asia/Manila by a free cron-job.org job
   hitting `/ready` every 10 minutes. `/ready` also touches MySQL, which helps
   keep Aiven's free service from idling. Render's health check stays on
@@ -397,3 +398,41 @@ this gap: fast refusals only covered 3-6 s.
   at 0.17 s. The old four-attempt policy failed at about 2.5 s.
 - The external 06:00-22:00 keep-alive (D-26) remains the preventive fix: with
   the API already warm, this retry window is only the safety net.
+
+## D-28 - Survive an API outage that outlasts the page retry budget
+
+On 2026-10-20 between 08:15 and 08:23 UTC the web was up but the API returned
+Render edge 502s for over eight minutes. Each `/api/auth/me` retry sequence
+exhausted the 90 s budget; the server component then threw after the Suspense
+fallback had streamed. The browser logged React #441, the service worker's
+`respondWith(fetch(request))` rejected for `/dashboard`
+(`TypeError: Failed to fetch`), and the phone could stay on "Waking up" with no
+way forward.
+
+- `lib/backend.ts` now throws `BackendUnavailableError` for network, retry and
+  non-JSON failures. `AuthGate` catches only that case and returns the normal
+  `WakingUp` screen; auth redirects, 404s, bad config and real API errors still
+  throw. This removes the server-render error on the common API-is-down path.
+- `WakeWatchdog` is rendered outside the Suspense boundary in
+  `(app)/layout.tsx`, because React does not hydrate timers inside a
+  still-suspended fallback. It polls `/api/wake` only while `[data-waking]` is
+  on screen. That route checks the same `/api/auth/me` endpoint the layout
+  needs, once, with a 10 s timeout (not the 90 s retrying proxy); a 200 or 401
+  means the API and database are up. When ready, the watchdog reloads the page
+  automatically. After 95 s it also shows a card with **Try again**.
+- `public/sw.js` no longer calls `respondWith(fetch(request))` for pages/API;
+  it simply returns, which is true network-only behaviour. A rejected
+  `respondWith` can turn a dropped RSC stream into a navigation network error
+  and leave the old screen stuck. Registration uses `updateViaCache: "none"`
+  so installed apps fetch the fixed worker promptly.
+- `instrumentation.ts` now retries `GET /health` for up to 10 minutes with
+  2-30 s backoff instead of one ping, logging `startup_wake_retry` and
+  `startup_wake`. This covers the observed long API outage without delaying web
+  startup. The page retry budget stays at 90 s; the client poller takes over
+  after that.
+- Verified locally with production `next start` and the service worker enabled:
+  permanent 502 -> WakingUp with no error screen and no React #441; 95 s ->
+  watchdog card with **Try again**; a mock API becoming ready after 20 s ->
+  automatic reload; 47/47 frontend tests, typecheck, lint and build pass.
+  Awaiting push/deploy. The external keep-alive (D-26) remains the preventive
+  fix.

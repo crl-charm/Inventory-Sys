@@ -11,10 +11,12 @@ import { useEffect } from "react";
 export function ServiceWorkerRegister() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
-    navigator.serviceWorker.register("/sw.js").catch(() => {
-      // Non-secure origin (LAN HTTP): installability stays off; the app is
-      // unaffected.
-    });
+    navigator.serviceWorker
+      .register("/sw.js", { updateViaCache: "none" })
+      .catch(() => {
+        // Non-secure origin (LAN HTTP): installability stays off; the app is
+        // unaffected.
+      });
   }, []);
   return null;
 }

@@ -1,18 +1,21 @@
 # Render wake-up plan — make the web URL "just work"
 
-Status: **D-27 fast-502 fix verified locally, awaiting push; C awaiting setup**
-(2026-10-20).
+Status: **D-27 deployed; D-28 long-outage watchdog verified locally, awaiting
+push; C awaiting setup** (2026-10-20).
 
 - **A** — resilience patch D-25: committed and deployed (`0164f8b`);
   `/ready` returns 200.
-- **B** — `frontend/src/instrumentation.ts` + 4 tests: deployed; Render log
-  shows `startup_wake status:200`.
-- **D** — D-27 fast-502 retry window + waking screen: implemented and verified
-  locally (46/46 tests); ready to push.
+- **B** — `frontend/src/instrumentation.ts` + tests: deployed; Render logs
+  show `startup_wake status:200`. Now retries for up to 10 minutes instead of
+  firing once (D-28).
+- **D** — D-27 fast-502 retry window + waking screen: deployed (`1bb77ca`);
+  live authenticated dashboard returned 200 with the waking screen.
+- **D-28** — long-outage watchdog, readiness polling, service-worker fix:
+  implemented and verified locally (47/47 tests); ready to push.
 - **C** — create the external monitor using §6: owner action.
 
-Decision: **A + B + C + D**, with the API warm **06:00–22:00 Asia/Manila** on
-the free plan.
+Decision: **A + B + C + D + D-28**, with the API warm **06:00–22:00
+Asia/Manila** on the free plan.
 
 Goal: a client opens `https://rgarage-web.onrender.com`, sees the login
 screen, signs in, and lands on the dashboard — without anyone first opening
@@ -46,22 +49,34 @@ before the patch the UI showed a misleading error screen during it.
 
 ### What the resilience fixes handle
 
-Together, D-25 and D-27 make the API **start automatically** — no manual API
-URL visit:
+Together, D-25, D-27 and D-28 make the API **start automatically** — no manual
+API URL visit:
 
 - the login page sends a fire-and-forget `GET /health` to the API as soon as
   it renders;
+- the web server's boot hook now retries `GET /health` for up to **10
+  minutes** with 2-30 s backoff, so the API keeps being woken even when a cold
+  start takes much longer than a minute;
 - the proxy retries a sleeping/restarting API for up to ~90 s with backoff;
-- read retries now cover **instant 502s** for the whole window (15 attempts
+- read retries cover **instant 502s** for the whole window (15 attempts
   instead of 4, which only lasted ~2.5 s in the 06:12 incident);
 - server-rendered pages (`/dashboard`, etc.) retry too, and the protected
   layout streams a branded "Waking up the server" screen immediately instead
   of a blank page or the error boundary;
-- if the wait is too long, the user sees "server is starting up — press
-  Retry" instead of a JSON/SyntaxError crash.
+- if the API is still unavailable after the retry budget, `AuthGate` returns
+  the waking screen instead of throwing a server-render error; an outer
+  watchdog polls a lightweight `/api/wake` readiness route and reloads the app
+  automatically as soon as the API's auth endpoint answers;
+- after 95 s the watchdog also shows "The server is taking longer than usual"
+  with a **Try again** button — never an endless spinner;
+- the service worker no longer wraps page/API fetches in `respondWith`, so a
+  dropped RSC stream cannot turn into a stuck navigation; page and API
+  traffic stay network-only.
 
-So once D-27 is deployed, **opening the web URL already starts the API by
-itself**. What the patches cannot remove is the waiting time itself.
+So **opening the web URL already starts the API by itself** and the page opens
+automatically when the API is ready. What the patches cannot remove is the
+waiting time itself; the external keep-alive (C) is what makes it fast during
+shop hours.
 
 ---
 
@@ -122,14 +137,13 @@ healthy API.)
 
 ## 4. Recommended path
 
-1. **Deploy the resilience patch first** (pending your push). Verify `/ready`
-   returns `{"status":"ready"}`. This alone removes the "API must be started
-   by hand" behaviour.
-2. **Add B** — `frontend/src/instrumentation.ts`, fire-and-forget ping at web
-   boot. Five lines, no startup delay.
-3. **Set up C** — keep the API warm during shop hours with an external
+1. **Deploy D-28** (awaiting your push). Verify `/ready` returns
+   `{"status":"ready"}` and the new `/api/wake` route answers
+   `{"ready":true}`. This makes a long API outage recover automatically
+   without an error screen.
+2. **Set up C** — keep the API warm during shop hours with an external
    monitor. This is what makes the client experience feel normal.
-4. **Re-evaluate after a few days.** If the remaining web cold-start is still
+3. **Re-evaluate after a few days.** If the remaining web cold-start is still
    unacceptable, upgrade the **web** service to Starter (~$7/mo) — or both
    for a fully instant app.
 
@@ -162,14 +176,36 @@ still fits with a smaller buffer. Keep the web **out** of the pinger.
 `frontend/src/instrumentation.ts` now runs when the web server boots:
 
 - resolves `BACKEND_URL` with the same rules as the rest of the app;
-- fires `GET /health` with a 60 s timeout and never awaits it, because
-  `register()` must return before Next.js serves requests;
-- logs `startup_wake` on success and `startup_wake_failed` on timeout/error;
+- starts `wakeApi()` without awaiting it, because `register()` must return
+  before Next.js serves requests;
+- `wakeApi()` tries `GET /health` with a 20 s timeout, retries every 2-30 s
+  for up to **10 minutes**, and stops on any 2xx;
+- logs `startup_wake` on success, `startup_wake_retry` for a failed attempt,
+  and `startup_wake_gave_up` if the whole window closes;
 - a bad `BACKEND_URL` logs `startup_wake_skipped` instead of crashing startup
   (the actionable config error still appears on the first page request).
 
-Four unit tests live in `frontend/src/instrumentation.test.ts`. The existing
+Five unit tests live in `frontend/src/instrumentation.test.ts`. The existing
 login-page wake ping (D-25) remains the fallback.
+
+### D-28 — long-outage watchdog and service worker
+
+- `lib/backend.ts` throws `BackendUnavailableError` for network, retry and
+  non-JSON failures. `(app)/auth-gate.tsx` catches only that error and returns
+  the waking screen; redirects, 404s and real API errors still throw.
+- `components/wake-watchdog.tsx` sits outside the Suspense boundary in
+  `(app)/layout.tsx`. It polls `/api/wake` only while a `[data-waking]` screen
+  is present. `/api/wake` checks the same `/api/auth/me` endpoint the layout
+  needs, with the caller's cookie and a 10 s timeout (not the 90 s retrying
+  proxy); 200 or 401 means the API and database are up. When ready, the
+  watchdog reloads the page automatically. At 95 s it shows a card with
+  **Try again**.
+- `public/sw.js` returns for page/API requests instead of calling
+  `respondWith(fetch(request))`; this is true network-only and avoids turning
+  a dropped RSC stream into a stuck navigation. `service-worker-register.tsx`
+  registers with `updateViaCache: "none"`.
+- The /api/wake status poll always returns HTTP 200 with `{ "ready": bool }`
+  instead of 503, so browsers do not log a failed resource every few seconds.
 
 ### C — external keep-alive
 
@@ -227,6 +263,8 @@ Notes:
       200 after 6.1 s and the dashboard page rendered after 6.58 s, with the
       waking screen at 0.17 s — no error screen (verified 2026-10-20)
 - [ ] API logs: `server_started`, `startup_db_check reachable:true`
+- [ ] After D-28 deploy: `/api/wake` answers 200 `{"ready":true}` while the API
+      is up.
 
 **Cold start, before any pinger**
 
@@ -238,12 +276,29 @@ Notes:
 
 **After B** — verified locally 2026-10-20
 
-- [x] 44/44 frontend tests pass (4 new instrumentation tests).
+- [x] 47/47 frontend tests pass (5 instrumentation tests).
 - [x] Production `next start` against a mock API logged
       `startup_wake status:200`, and the mock received `/health` before the
       first page was served.
 - [ ] After the next deploy: restarting the web should show a `/health` request
       before the first sign-in.
+
+**D-28 long-outage and service-worker regression** — verified locally
+2026-10-20 with production `next start`, a mock API, and the service worker
+controlling the page:
+
+- [x] Permanent 502: after the retry budget the page stays on "Waking up",
+      not the error screen; no React #441.
+- [x] At 95 s: "The server is taking longer than usual" card with
+      **Try again** appears, while the watchdog keeps polling.
+- [x] Mock API becomes ready after 20 s: the page reloads automatically; with
+      no session it lands on sign-in, not an error.
+- [x] Service worker controlled the test page and produced no
+      `FetchEvent`/`Failed to fetch` errors.
+- [x] The `/api/wake` poll returns HTTP 200 with `{"ready":false}` while the
+      API is down, so there are no failed-resource console errors.
+- [ ] After deploy: repeat the permanent-502 and 20 s-recovery checks against
+      the live web service.
 
 **After C**
 
@@ -259,8 +314,11 @@ Notes:
 Owner chose **A + B + C** with the API warm **06:00–22:00 Asia/Manila**.
 
 - **A** — D-25 resilience patch deployed (`0164f8b`); `/ready` returns 200.
-- **B** — implemented in `frontend/src/instrumentation.ts`; ready to push.
+- **B** — implemented in `frontend/src/instrumentation.ts`; deployed, and
+  extended to a 10-minute retry loop by D-28.
 - **C** — owner to create the cron-job.org job in §6.
+- **D-28** — long-outage watchdog, readiness polling, service-worker fix;
+  verified locally, awaiting push.
 - **E** (Render Starter) remains the fallback if the remaining web cold start
   becomes unacceptable later.
 
@@ -268,6 +326,11 @@ Owner chose **A + B + C** with the API warm **06:00–22:00 Asia/Manila**.
 
 - **Free-hour cap**: exceeding it can suspend free services; the 480 h plan
   leaves a healthy buffer. Re-check Render Billing after the first month.
+- **Long cold start observed 2026-10-20**: the API answered Render edge 502s
+  for ~8 minutes (08:15-08:23 UTC) while the web was up. D-28 now recovers
+  from this without an error screen, but the external keep-alive (C) is what
+  prevents it during shop hours. Check `rgarage-api` -> Events/Logs for that
+  window to see whether it was a deploy/restart or a Render cold-start queue.
 - **External monitor dependency**: if it stops, cold starts return — the
   resilience patch keeps that safe.
 - **Aiven can still power off** (policy outside this repo); pinging `/ready`
