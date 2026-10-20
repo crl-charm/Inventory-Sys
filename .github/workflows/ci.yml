@@ -36,11 +36,13 @@ jobs:
         run: npm run lint
       - name: Typecheck
         run: npm run typecheck
+      - name: Unit tests
+        run: npm test
       - name: Build
         run: npm run build
 
   backend:
-    name: Backend (typecheck)
+    name: Backend (typecheck, tests)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -58,3 +60,5 @@ jobs:
         run: npm ci
       - name: Typecheck
         run: npm run typecheck
+      - name: Unit tests
+        run: npm test

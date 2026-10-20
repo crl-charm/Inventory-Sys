@@ -1,53 +1,57 @@
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-
-const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:4000";
+import { resolveBackendUrl } from "./backend-url";
+import { log } from "./log";
+import { fetchWithRetry, UpstreamUnavailableError } from "./retry";
+import { upstreamPolicy } from "./upstream";
 
 type Envelope<T> =
   | { success: true; data: T }
   | { success: false; error: { code: string; message: string } };
 
-/**
- * The API is a separate Node process. When it restarts (deploys, crashes),
- * this server's keep-alive sockets point at dead connections, and the first
- * request on one can fail with ECONNRESET even though the API is back.
- * Reads are safe to repeat, so retry briefly before giving up.
- */
-async function fetchWithRetry(
-  url: string,
-  init: RequestInit,
-  attempts = 3
-): Promise<Response> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      return await fetch(url, init);
-    } catch (error) {
-      lastError = error;
-      await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
-    }
-  }
-  throw lastError;
-}
+const UNAVAILABLE_MESSAGE =
+  "The server is starting up or temporarily unavailable. Please wait a few seconds and try again.";
 
+/**
+ * Server-side GET to the API (used by page layouts). Reads are replay-safe, so
+ * they use the same timeout + backoff policy as the /api proxy. A sleeping API
+ * therefore delays the page instead of crashing it, and a dead one produces a
+ * clear message instead of a hung request.
+ */
 export async function backendGet<T>(path: string): Promise<T> {
   const cookie = (await cookies()).toString();
+  const backendUrl = resolveBackendUrl(); // throws an actionable error on a bad config
   let response: Response;
   try {
-    response = await fetchWithRetry(`${BACKEND_URL}${path}`, {
-      headers: { cookie },
-      cache: "no-store",
-    });
-  } catch {
-    throw new Error(
-      "Cannot reach the API. Is the backend running on BACKEND_URL?"
+    response = await fetchWithRetry(
+      `${backendUrl}${path}`,
+      { headers: { cookie }, cache: "no-store" },
+      upstreamPolicy(true),
+      {
+        onRetry: ({ attempt, delayMs, reason }) =>
+          log("warn", "backend_get_retry", { path, attempt, delayMs, reason }),
+      }
     );
+  } catch (error) {
+    if (error instanceof UpstreamUnavailableError) {
+      log("error", "backend_get_failed", {
+        path, kind: error.kind, code: error.code, attempts: error.attempts,
+      });
+    }
+    throw new Error(UNAVAILABLE_MESSAGE);
   }
 
   if (response.status === 401) redirect("/login");
   if (response.status === 404) notFound();
 
-  const payload = (await response.json()) as Envelope<T>;
+  let payload: Envelope<T>;
+  try {
+    payload = (await response.json()) as Envelope<T>;
+  } catch {
+    // Not JSON (e.g. a proxy's HTML error page while the API wakes up).
+    log("error", "backend_get_non_json", { path, status: response.status });
+    throw new Error(UNAVAILABLE_MESSAGE);
+  }
   if (!payload.success) {
     if (payload.error.code === "NOT_FOUND") notFound();
     throw new Error(payload.error.message);

@@ -5,6 +5,8 @@
  * Paginated list endpoints additionally include `meta` (page info).
  */
 
+import { fetchWithRetry, UpstreamUnavailableError, type RetryPolicy } from "./retry";
+
 export interface ApiFailure {
   success: false;
   error: { code: string; message: string; details?: unknown };
@@ -32,7 +34,42 @@ export class ApiClientError extends Error {
     this.code = code;
     this.details = details;
   }
+
+  /**
+   * True when the failure is about reaching the server (asleep, restarting,
+   * offline) rather than about the request itself. The UI can offer "Retry".
+   */
+  get isTemporary(): boolean {
+    return (
+      this.code === "NETWORK_ERROR" ||
+      this.code === "BACKEND_UNAVAILABLE" ||
+      this.code === "SERVER_UNAVAILABLE" ||
+      this.code === "DATABASE_UNAVAILABLE"
+    );
+  }
 }
+
+const NETWORK_MESSAGE =
+  "Can't reach the server. Check your internet connection — if it is fine, the server may still be waking up. Wait a few seconds and press Retry.";
+const UNAVAILABLE_MESSAGE =
+  "The server is starting up or temporarily unavailable. Please wait a few seconds and press Retry.";
+
+/**
+ * Browser → Next.js server. The server-side proxy already retries the API, so
+ * the browser only adds a small safety net for GETs (e.g. the Next.js service
+ * itself was asleep) and a hard timeout for everything. Writes are never
+ * repeated here: the user presses Save/Retry again, and forms that matter
+ * (sales) reuse their idempotency key.
+ */
+const READ_POLICY: RetryPolicy = {
+  maxAttempts: 2,
+  timeoutMs: 100_000,
+  totalBudgetMs: 150_000,
+  baseDelayMs: 1_500,
+  maxDelayMs: 6_000,
+  mode: "replay-safe",
+};
+const WRITE_POLICY: RetryPolicy = { ...READ_POLICY, maxAttempts: 1, mode: "pre-send" };
 
 interface PaginationMeta {
   page?: number;
@@ -48,17 +85,28 @@ async function request<T>(
 ): Promise<{ data: T; meta: PaginationMeta }> {
   let response: Response;
   try {
-    response = await fetch(url, {
-      method,
-      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    throw new ApiClientError(
-      0,
-      "NETWORK_ERROR",
-      "Cannot reach the app server. Check that `npm run dev` is running."
+    response = await fetchWithRetry(
+      url,
+      {
+        method,
+        headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      },
+      method === "GET" ? READ_POLICY : WRITE_POLICY,
+      {
+        // If the proxy already retried and gave up, don't stack more retries.
+        shouldRetryResponse: (r) => !r.headers.has("x-upstream-exhausted"),
+      }
     );
+  } catch (error) {
+    if (error instanceof UpstreamUnavailableError && error.kind === "timeout" && method !== "GET") {
+      throw new ApiClientError(
+        0,
+        "NETWORK_ERROR",
+        "The server took too long to answer. Your change may or may not have been saved — check the list before trying again."
+      );
+    }
+    throw new ApiClientError(0, "NETWORK_ERROR", NETWORK_MESSAGE);
   }
 
   let payload: unknown = null;
@@ -85,6 +133,11 @@ async function request<T>(
       errorPayload.error.message,
       errorPayload.error.details
     );
+  }
+  // Not our JSON envelope: typically an HTML error page from the host while
+  // a service wakes up or restarts.
+  if (response.status === 502 || response.status === 503 || response.status === 504) {
+    throw new ApiClientError(response.status, "SERVER_UNAVAILABLE", UNAVAILABLE_MESSAGE);
   }
   throw new ApiClientError(
     response.status,

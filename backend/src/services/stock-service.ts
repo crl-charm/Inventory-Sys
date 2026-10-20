@@ -1,4 +1,5 @@
 import type { RowDataPacket } from "mysql2/promise";
+import { safeRollback } from "@/lib/db-recovery";
 import { pool } from "@/lib/db";
 import { ConflictError, ValidationError } from "@/lib/errors";
 import { addDays, storeDayToUtcBoundary } from "@/lib/dates";
@@ -91,7 +92,7 @@ export async function stockInProduct(
       stockAfter: after,
     };
   } catch (error) {
-    await connection.rollback();
+    await safeRollback(connection);
     wrapDbError(error);
   } finally {
     connection.release();
@@ -150,7 +151,7 @@ export async function recordPhysicalCount(
       stockAfter: after,
     };
   } catch (error) {
-    await connection.rollback();
+    await safeRollback(connection);
     if (error instanceof ConflictError) throw error;
     wrapDbError(error);
   } finally {

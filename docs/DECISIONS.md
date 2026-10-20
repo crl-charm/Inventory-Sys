@@ -300,3 +300,40 @@ both free services in Singapore, `/health` check, Render-generated
 prompted database secrets. Aiven's free plan powers the service off after
 long inactivity (email warning + power-on button) — daily use keeps it
 awake. README has the click-by-click.
+
+## D-25 - Render cold-start resilience (proxy retries, /ready, DB recovery)
+
+At 06:36 the shop got the branded error screen instead of the login form: the
+API free service was asleep, Render answered the server component's
+`/api/auth/me` fetch with an HTML wake-up page, and `response.json()` threw
+`SyntaxError: Unexpected token '<'`. The login form also reported every failure
+as "Is `npm run dev` still running?".
+
+- Frontend proxy (`app/api/[...path]/route.ts`): 45 s per attempt, 90 s total
+  budget, bounded exponential backoff with jitter, `Retry-After` honoured.
+  Reads are retried; writes are sent once, except provably replay-safe calls
+  (login/logout and `/api/sales` with a `requestId`) or errors that prove the
+  request never left (`ECONNREFUSED`/DNS/connect timeout). Render's HTML
+  502/503/504 pages become the JSON envelope, so the UI never parses HTML.
+- Server-side page loads (`lib/backend.ts`) use the same policy and turn a
+  non-JSON reply into a clear "waking up" message, not a SyntaxError. The
+  login page no longer swallows `redirect()` and sends one fire-and-forget
+  wake-up ping; the login button explains a slow wake-up after 6 s.
+- Backend: `/health` stays a cheap liveness check; new `/ready` checks the DB
+  (cached 10 s, no details leaked). The mysql2 pool gets connect/idle
+  timeouts, keep-alive and socket retirement; `getConnection()` pings before
+  a transaction; plain SELECTs retry once on a dead socket; writes and
+  transactions are never replayed; a failed rollback destroys the connection
+  instead of hiding the original error. `SIGTERM` drains requests and closes
+  the pool. Structured JSON logs with request ids; production refuses to boot
+  with missing config (variable names only) instead of silently using
+  localhost.
+- Config: `render.yaml` keeps Render's health check on `/health` (never
+  `/ready`, or a DB outage would restart a healthy API). New optional
+  variables are documented in both `.env.example` files. 20 backend + 40
+  frontend unit tests cover retries, budgets, proxy replay safety and DB
+  recovery, and CI runs them.
+
+A free-plan cold start itself cannot be removed (30-60 s, worst case two
+wake-ups in a row); the app now waits safely, says why, and recovers without
+a Blueprint restart or manual restart of either service.

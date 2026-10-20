@@ -6,6 +6,7 @@ import {
   isDatabaseConnectionError,
 } from "./errors";
 import { requireUser } from "./auth";
+import { log, serializeError } from "./logger";
 import type { SessionUser } from "@/types";
 
 /**
@@ -31,7 +32,8 @@ export function fail(
 ): Response {
   return Response.json(
     { success: false, error: { code, message, details } },
-    { status }
+    // 503 = "try again shortly": tell clients how soon (used by the UI proxy).
+    { status, headers: status === 503 ? { "retry-after": "5" } : undefined }
   );
 }
 
@@ -46,10 +48,11 @@ export function fromError(error: unknown): Response {
     });
   }
   if (isDatabaseConnectionError(error)) {
+    log("warn", "db_unavailable", { error: serializeError(error) });
     const dbError = new DatabaseUnavailableError(error);
     return fail(dbError.code, dbError.message, dbError.status);
   }
-  console.error("[api] unexpected error:", error);
+  log("error", "unexpected_error", { error: serializeError(error) });
   return fail("INTERNAL_ERROR", "Something went wrong. Please try again.", 500);
 }
 

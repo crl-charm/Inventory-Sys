@@ -23,6 +23,9 @@ services:
     rootDir: backend
     buildCommand: npm install
     startCommand: npm start
+    # /health is a cheap LIVENESS check (no database access). Keep it that way:
+    # do not point this at /ready, or a database outage would make Render
+    # restart a perfectly healthy API. /ready exists for manual diagnosis.
     healthCheckPath: /health
     envVars:
       # External managed MySQL. Prompted once, on first apply.

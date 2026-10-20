@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { startTransition, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 
 /**
@@ -15,9 +16,20 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
+
   useEffect(() => {
     console.error(error);
   }, [error]);
+
+  // For errors thrown while a server component loaded data, reset() alone
+  // re-renders the old failure. Refresh first so the server runs again.
+  function retry() {
+    startTransition(() => {
+      router.refresh();
+      reset();
+    });
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-brand-ink px-4 py-10">
@@ -29,11 +41,12 @@ export default function Error({
           This screen hit a problem
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-400">
-          Your saved data is safe. Reload the screen — if it happens again,
+          Your saved data is safe. The server may be waking up after a quiet
+          period — wait a few seconds and try again. If it keeps happening,
           close and reopen the app.
         </p>
         <div className="mt-6 flex flex-col gap-2">
-          <button type="button" onClick={reset} className="btn-gold w-full">
+          <button type="button" onClick={retry} className="btn-gold w-full">
             Try again
           </button>
           <a

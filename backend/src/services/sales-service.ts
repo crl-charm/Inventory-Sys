@@ -1,4 +1,5 @@
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { safeRollback } from "@/lib/db-recovery";
 import { pool } from "@/lib/db";
 import {
   AlreadyVoidedError,
@@ -417,7 +418,7 @@ export async function postSalesBatch(
     await connection.commit();
     return { replayed: false, sale, stockUpdates };
   } catch (error) {
-    await connection.rollback();
+    await safeRollback(connection);
     wrapDbError(error);
   } finally {
     connection.release();
@@ -521,7 +522,7 @@ export async function voidSalesBatch(
     await connection.commit();
     return sale;
   } catch (error) {
-    await connection.rollback();
+    await safeRollback(connection);
     wrapDbError(error);
   } finally {
     connection.release();

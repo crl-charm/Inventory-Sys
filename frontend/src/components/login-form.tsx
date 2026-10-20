@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandMark } from "./brand-mark";
 import { InstallAppLink } from "./install-app";
@@ -20,35 +20,65 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [slow, setSlow] = useState(false);
+
+  // After a few seconds of waiting, explain why (free-plan servers sleep).
+  useEffect(() => {
+    if (!pending) {
+      setSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlow(true), 6000);
+    return () => clearTimeout(timer);
+  }, [pending]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setPending(true);
+    let response: Response;
     try {
-      const response = await fetch("/api/auth/login", {
+      response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
+        // The proxy retries a sleeping API for up to ~90 s; allow for that.
+        signal: AbortSignal.timeout(120_000),
       });
-      const payload = (await response.json()) as LoginApiResult;
-      if (!response.ok || !payload.success) {
-        setError(
-          payload.success
-            ? "Sign in failed. Try again."
-            : payload.error.message
-        );
-        setPending(false);
-        return;
-      }
-      router.replace("/dashboard");
-      router.refresh();
     } catch {
+      // fetch itself failed: offline, or the web service did not answer at all.
       setError(
-        "Cannot reach the app server. Is `npm run dev` still running?"
+        "Can't reach the server. Check your internet connection, then press Sign in again — if the server was asleep it may need another minute."
       );
       setPending(false);
+      return;
     }
+
+    // Parse separately so "the reply was not JSON" is never mistaken for
+    // "the network is down" (this used to show the misleading npm run dev text).
+    let payload: LoginApiResult | null = null;
+    try {
+      payload = (await response.json()) as LoginApiResult;
+    } catch {
+      payload = null;
+    }
+
+    if (!payload) {
+      setError(
+        response.status >= 500
+          ? "The server is starting up or temporarily unavailable. Wait a few seconds, then press Sign in again."
+          : "Sign in failed. Try again."
+      );
+      setPending(false);
+      return;
+    }
+    if (!response.ok || !payload.success) {
+      setError(payload.success ? "Sign in failed. Try again." : payload.error.message);
+      setPending(false);
+      return;
+    }
+    router.replace("/dashboard");
+    router.refresh();
   }
 
   return (
@@ -134,6 +164,13 @@ export function LoginForm() {
               className="animate-scale-in mt-4 rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-sm text-red-300"
             >
               {error}
+            </p>
+          ) : null}
+
+          {pending && slow ? (
+            <p role="status" className="mt-4 text-center text-xs text-slate-400">
+              Waking up the server — the first sign-in after a quiet period can
+              take up to a minute. Please keep this page open.
             </p>
           ) : null}
 

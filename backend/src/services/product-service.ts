@@ -1,4 +1,5 @@
 import type { PoolConnection, RowDataPacket, ResultSetHeader } from "mysql2/promise";
+import { safeRollback } from "@/lib/db-recovery";
 import { pool } from "@/lib/db";
 import {
   ConflictError,
@@ -291,7 +292,7 @@ export async function createProduct(
     await connection.commit();
     return await getProduct(productId);
   } catch (error) {
-    await connection.rollback();
+    await safeRollback(connection);
     if (isDatabaseConnectionError(error)) throw new DatabaseUnavailableError(error);
     throw error;
   } finally {

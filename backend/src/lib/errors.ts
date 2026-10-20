@@ -116,7 +116,10 @@ export class DatabaseUnavailableError extends AppError {
     super(
       "DATABASE_UNAVAILABLE",
       503,
-      "Cannot connect to the local database. Open XAMPP Control Panel and start MySQL, then retry.",
+      // On Render there is no XAMPP: don't tell the user to open it.
+      process.env.NODE_ENV === "production"
+        ? "The database is temporarily unavailable. Please wait a moment and try again."
+        : "Cannot connect to the local database. Open XAMPP Control Panel and start MySQL, then retry.",
       undefined
     );
     if (cause) this.cause = cause;
@@ -129,19 +132,51 @@ interface MysqlLikeError {
   errno?: number;
 }
 
+/**
+ * Errors that mean "the socket we were using is dead" (idle connection reaped
+ * by Aiven / a NAT, DB restarted, ...). A fresh connection normally works.
+ */
+const STALE_CONNECTION_CODES = new Set([
+  "ECONNRESET",
+  "EPIPE",
+  "ECONNABORTED",
+  "PROTOCOL_CONNECTION_LOST",
+  "PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR",
+]);
+
+const STALE_CONNECTION_MESSAGES = [
+  "Can't add new command when connection is in closed state",
+  "Can't write in closed state",
+];
+
+export function isStaleConnectionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (typeof code === "string" && STALE_CONNECTION_CODES.has(code)) return true;
+  return (
+    typeof message === "string" &&
+    STALE_CONNECTION_MESSAGES.some((text) => message.includes(text))
+  );
+}
+
 const CONNECTION_ERROR_CODES = new Set([
   "ECONNREFUSED",
   "ETIMEDOUT",
   "EHOSTUNREACH",
+  "ENETUNREACH",
   "ENOTFOUND",
+  "EAI_AGAIN",
   "PROTOCOL_CONNECTION_LOST",
   "ER_GET_CONNECTION_TIMEOUT",
+  "ER_CON_COUNT_ERROR",
+  "ER_SERVER_SHUTDOWN",
   "ER_ACCESS_DENIED_ERROR",
   "ER_BAD_DB_ERROR",
 ]);
 
 export function isDatabaseConnectionError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
+  if (isStaleConnectionError(error)) return true;
   const code = (error as MysqlLikeError).code;
   return typeof code === "string" && CONNECTION_ERROR_CODES.has(code);
 }

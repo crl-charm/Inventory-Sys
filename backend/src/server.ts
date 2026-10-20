@@ -1,5 +1,9 @@
 import "./load-env";
+import "./startup-check";
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { closePool, pingDatabase } from "./lib/db";
+import { log, requestContext, serializeError } from "./lib/logger";
 import * as authLogin from "./api/auth/login/route";
 import * as authLogout from "./api/auth/logout/route";
 import * as authMe from "./api/auth/me/route";
@@ -48,8 +52,40 @@ function bind<P extends Params>(
   return (request, params) => fn(request, { params: params as P });
 }
 
+/**
+ * Liveness (/health): "the process is up". No database access, so it is cheap
+ * and keeps answering even while Aiven is down (Render must not restart a
+ * healthy API just because the database is unreachable).
+ *
+ * Readiness (/ready): "this API can actually serve requests" = can it reach
+ * MySQL. The answer is cached for 10 s and shared between concurrent callers,
+ * so polling it can never flood the database. Nothing sensitive is returned.
+ * Do NOT point Render's healthCheckPath at /ready (see docs).
+ */
+const READY_TTL_MS = 10_000;
+let readyCheck: { at: number; result: Promise<boolean> } | null = null;
+
+function isReady(): Promise<boolean> {
+  const now = Date.now();
+  if (!readyCheck || now - readyCheck.at > READY_TTL_MS) {
+    readyCheck = { at: now, result: pingDatabase(3000) };
+  }
+  return readyCheck.result;
+}
+
+async function readiness(): Promise<Response> {
+  const ready = await isReady();
+  return ready
+    ? Response.json({ status: "ready" })
+    : Response.json(
+        { status: "unavailable" },
+        { status: 503, headers: { "retry-after": "5" } }
+      );
+}
+
 const routes: Route[] = [
   route("GET", "/health", async () => new Response("ok")),
+  route("GET", "/ready", () => readiness()),
   route("POST", "/api/auth/login", (req) => authLogin.POST(req)),
   route("POST", "/api/auth/logout", (req) => authLogout.POST(req)),
   route("GET", "/api/auth/me", (req) => authMe.GET(req)),
@@ -143,26 +179,42 @@ const port = Number(process.env.PORT ?? 4000);
 // deploying to a public host (Render), set HOST=0.0.0.0 there.
 const host = process.env.HOST ?? "127.0.0.1";
 
+function pickRequestId(req: IncomingMessage): string {
+  const incoming = req.headers["x-request-id"];
+  const value = Array.isArray(incoming) ? incoming[0] : incoming;
+  return value && /^[A-Za-z0-9._-]{8,64}$/.test(value) ? value : randomUUID();
+}
+
+const SLOW_REQUEST_MS = 3000;
+
 const server = createServer((req, res) => {
-  void (async () => {
+  const requestId = pickRequestId(req);
+  res.setHeader("x-request-id", requestId);
+  const startedAt = performance.now();
+
+  void requestContext.run({ requestId }, async () => {
+    let status = 500;
+    let path = "/";
     try {
       const request = await toRequest(req);
       const url = new URL(request.url);
+      path = url.pathname; // path only: query strings can hold search terms
       const found = matchRoute(request.method, url.pathname);
       if (!found) {
-        await writeResponse(
-          res,
-          Response.json(
-            { success: false, error: { code: "NOT_FOUND", message: "Not found." } },
-            { status: 404 }
-          )
+        const notFound = Response.json(
+          { success: false, error: { code: "NOT_FOUND", message: "Not found." } },
+          { status: 404 }
         );
+        status = notFound.status;
+        await writeResponse(res, notFound);
         return;
       }
       const response = await found.route.handler(request, found.params);
+      status = response.status;
       await writeResponse(res, response);
     } catch (error) {
-      console.error("[api] server error:", error);
+      status = 500;
+      log("error", "server_error", { error: serializeError(error) });
       if (!res.headersSent) {
         res.writeHead(500, { "content-type": "application/json" });
         res.end(
@@ -172,10 +224,74 @@ const server = createServer((req, res) => {
           })
         );
       }
+    } finally {
+      const durationMs = Math.round(performance.now() - startedAt);
+      const isProbe = path === "/health" || path === "/ready";
+      // 503 = "dependency unavailable" (already logged with detail) → warn.
+      const level =
+        status >= 500 && status !== 503
+          ? "error"
+          : status === 503 || durationMs > SLOW_REQUEST_MS
+            ? "warn"
+            : isProbe
+              ? "debug"
+              : "info";
+      log(level, "request", { method: req.method, path, status, durationMs });
     }
-  })();
+  });
 });
 
+// Render's load balancer reuses idle connections for longer than Node's
+// default 5 s keep-alive. If Node closes first, the proxy occasionally sends a
+// request on a socket that is already closing and the user sees a 502.
+// Keep Node's timeouts above the proxy's.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+
 server.listen(port, host, () => {
-  console.log(`API listening on http://${host}:${port}`);
+  log("info", "server_started", {
+    host,
+    port,
+    nodeEnv: process.env.NODE_ENV ?? "development",
+  });
+  // Non-blocking warm-up: opens the first pooled connection and records
+  // whether the database is reachable. Startup never waits for it.
+  void pingDatabase(5000).then((ok) =>
+    log(ok ? "info" : "warn", "startup_db_check", { reachable: ok })
+  );
+});
+
+// --- Shutdown: Render sends SIGTERM on deploy / restart ----------------------
+let shuttingDown = false;
+
+function shutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log("info", "shutdown_started", { signal });
+  const force = setTimeout(() => {
+    log("error", "shutdown_forced");
+    process.exit(1);
+  }, 10_000);
+  force.unref();
+  server.close(() => {
+    closePool()
+      .catch((error: unknown) =>
+        log("warn", "shutdown_pool_error", { error: serializeError(error) })
+      )
+      .finally(() => {
+        log("info", "shutdown_complete");
+        process.exit(0);
+      });
+  });
+  server.closeIdleConnections();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("unhandledRejection", (reason) => {
+  log("error", "unhandled_rejection", { error: serializeError(reason) });
+});
+process.on("uncaughtException", (error) => {
+  log("error", "uncaught_exception", { error: serializeError(error) });
+  process.exit(1);
 });

@@ -257,6 +257,8 @@ function SidebarContent({
     setLoggingOut(true);
     try {
       await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // offline / server asleep: still leave the screen; the cookie expires on its own
     } finally {
       router.replace("/login");
       router.refresh();
