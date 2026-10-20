@@ -20,13 +20,22 @@ export function Modal({
   footer?: React.ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  // Keep the latest close handler without re-running the focus/scroll effect
+  // on every parent render. Typing in an input inside the dialog re-renders
+  // the parent; if this effect depended on `onClose`, its cleanup would pull
+  // focus back out after every keystroke.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKeyDown);
     document.body.style.overflow = "hidden";
@@ -35,7 +44,7 @@ export function Modal({
       document.body.style.overflow = "";
       previous?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

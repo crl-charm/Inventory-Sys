@@ -73,6 +73,8 @@ export function SalesEntryForm({ today }: { today: string }) {
   // plain-http LAN origins too (see newRequestId).
   const [requestId, setRequestId] = useState(newRequestId);
   const pickerInputRef = useRef<HTMLInputElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const suppressPickerOpenRef = useRef(false);
 
   const {
     data: productsData,
@@ -101,6 +103,19 @@ export function SalesEntryForm({ today }: { today: string }) {
       cancelled = true;
     };
   }, [saleDate]);
+
+  // Close the product picker when tapping anywhere outside it. Without this,
+  // the list stayed open on phones and covered the product cards below.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function onPointerDown(event: PointerEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [pickerOpen]);
 
   const filteredProducts = useMemo(() => {
     const query = pickerQuery.trim().toLowerCase();
@@ -147,8 +162,13 @@ export function SalesEntryForm({ today }: { today: string }) {
     setPickerQuery("");
     setPickerOpen(false);
     setShortages([]);
-    // Return focus to the picker for fast keyboard entry.
-    requestAnimationFrame(() => pickerInputRef.current?.focus());
+    // Return focus for fast keyboard entry, but suppress the focus handler so
+    // it does not immediately reopen the list over the line we just added.
+    suppressPickerOpenRef.current = true;
+    requestAnimationFrame(() => {
+      pickerInputRef.current?.focus();
+      suppressPickerOpenRef.current = false;
+    });
   }
 
   function updateLine(index: number, patch: Partial<Pick<Line, "quantity" | "finalUnitPrice">>) {
@@ -355,7 +375,15 @@ export function SalesEntryForm({ today }: { today: string }) {
       ) : null}
 
       {/* Product picker */}
-      <div className="relative rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+      <div
+        ref={pickerRef}
+        className="relative rounded-2xl border border-white/10 bg-white/[0.035] p-5"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setPickerOpen(false);
+          }
+        }}
+      >
         <label htmlFor="product-picker" className="mb-1 block text-sm font-medium text-slate-200">
           Add a product
         </label>
@@ -367,7 +395,10 @@ export function SalesEntryForm({ today }: { today: string }) {
             setPickerQuery(e.target.value);
             setPickerOpen(true);
           }}
-          onFocus={() => setPickerOpen(true)}
+          onFocus={() => {
+            if (!suppressPickerOpenRef.current) setPickerOpen(true);
+          }}
+          onClick={() => setPickerOpen(true)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -410,7 +441,7 @@ export function SalesEntryForm({ today }: { today: string }) {
           <ul
             id="product-picker-list"
             role="listbox"
-            className="absolute left-5 right-5 z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-white/10 bg-brand-panel shadow-2xl shadow-black/60"
+            className="relative z-20 mt-2 max-h-72 overflow-y-auto rounded-xl border border-white/10 bg-brand-panel shadow-2xl shadow-black/60 md:absolute md:left-5 md:right-5 md:mt-1"
           >
             {filteredProducts.slice(0, 50).map((product) => {
               const outOfStock = product.stockStatus === "out_of_stock";
