@@ -337,3 +337,30 @@ as "Is `npm run dev` still running?".
 A free-plan cold start itself cannot be removed (30-60 s, worst case two
 wake-ups in a row); the app now waits safely, says why, and recovers without
 a Blueprint restart or manual restart of either service.
+
+## D-26 - Wake the API automatically; keep it warm during shop hours
+
+The owner reported that after an idle period the web URL loaded but the API
+was still asleep, and the only way to start it was to open the API URL first.
+On Render free a service starts only when it receives a request, and the web is
+the entry point, so the web must wake first; the API cannot start before it.
+
+- `frontend/src/instrumentation.ts` pings the API's `GET /health` (fire and
+  forget, 60 s timeout) when the web server boots. `register()` must finish
+  before Next.js serves requests, so the ping is never awaited. The existing
+  login-page ping (D-25) stays as a fallback. A bad `BACKEND_URL` logs
+  `startup_wake_skipped`; the actionable error still appears on the first page.
+- The API is kept warm 06:00-22:00 Asia/Manila by a free cron-job.org job
+  hitting `/ready` every 10 minutes. `/ready` also touches MySQL, which helps
+  keep Aiven's free service from idling. Render's health check stays on
+  `/health` (D-25). Setup of the external job is pending (owner action); until
+  then the app still auto-wakes, just with the full cold-start wait.
+- The web is deliberately not pinged: two free services awake 24/7 would use
+  ~1,440 instance-hours/month against Render's ~750-hour free allowance. With
+  the API warm, only the web cold-starts (~30-60 s); sign-in is then immediate.
+  Outside the window the app still auto-wakes safely (D-25).
+- If the remaining web cold start is unacceptable, Render Starter
+  (~$7/service/month) is the paid fallback; no code change is needed.
+- Verified: 4 unit tests; production `next start` against a mock API logged
+  `startup_wake status:200` and the mock received `/health` before the first
+  page was served. Plan and setup steps: `docs/RENDER_WAKEUP_PLAN.md`.
