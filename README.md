@@ -279,4 +279,4 @@ machine is bound to `127.0.0.1` only (`bind-address` in `my.ini`).
   the record.
 - Money and quantities are handled as decimal strings with BigInt-based
   scaling — no floating-point drift. The server always recomputes totals.
-<!-- telemetry: 2026-11-01T07:36:31Z id: decfe9c5-849f-4af2-b65a-e8442c64c83b -->
+<!-- telemetry: 2026-11-01T17:58:33Z id: 62da27c4-42d7-4b44-bb3f-c53d3c0e2c61 -->
