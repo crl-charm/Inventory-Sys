@@ -3,14 +3,44 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev:backend": "npm --prefix backend run dev",
-    "dev:frontend": "npm --prefix frontend run dev",
-    "db:init": "npm --prefix backend run db:init",
-    "db:migrate": "npm --prefix backend run db:migrate",
-    "db:seed-owner": "npm --prefix backend run db:seed-owner",
-    "icons": "npm --prefix frontend run icons"
+    "dev": "next dev",
+    "build": "next build --webpack",
+    "start": "npm run db:check && next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "icons": "node scripts/generate-icons.mjs",
+    "test": "vitest run",
+    "test:integration": "tsx --test \"tests/*.integration.test.ts\"",
+    "db:init": "tsx scripts/db-init.ts",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:check": "tsx scripts/db-migrate.ts --check",
+    "db:backup": "tsx scripts/db-backup.ts",
+    "db:import": "tsx scripts/db-import.ts",
+    "db:ping": "tsx scripts/db-ping.ts",
+    "db:seed-owner": "tsx scripts/seed-owner.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.12",
+    "mysql2": "^3.24.6",
+    "next": "^16.4.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tsx": "^4.20.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5"
+    "@resvg/resvg-js": "^2.6.2",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.7.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "es-abstract": "^1.24.2",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.2",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.7"
   }
 }

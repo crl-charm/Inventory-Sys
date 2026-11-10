@@ -6,69 +6,50 @@ cd /d "%~dp0"
 echo Starting R Garage Auto Repair ^& Motor Oil...
 echo.
 
-rem --- 1. MySQL must be running (XAMPP) ---
-powershell -NoProfile -Command "if (-not (Test-NetConnection -ComputerName 127.0.0.1 -Port 3306 -InformationLevel Quiet -WarningAction SilentlyContinue)) { exit 1 }"
+rem --- 1. Check the configured database ---
+call npm run db:ping
 if errorlevel 1 (
-  echo [X] MySQL is NOT running.
-  echo     Open the XAMPP Control Panel, click Start next to MySQL, and run this again.
+  echo [X] The configured database is not reachable. Follow the instructions above.
   echo.
   pause
   exit /b 1
 )
-echo [OK] MySQL is running.
+echo [OK] Database is reachable.
 
 rem --- 2. One backup per day, automatically ---
-set "BACKUPS_TODAY=0"
-for /f %%i in ('powershell -NoProfile -Command "(Get-ChildItem '%~dp0backups\*.sql' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime.Date -eq (Get-Date).Date } | Measure-Object).Count"') do set "BACKUPS_TODAY=%%i"
-if "%BACKUPS_TODAY%"=="0" (
-  echo Taking today's database backup...
-  call "%~dp0scripts\backup-db.bat" silent
-  if errorlevel 1 echo [WARN] Today's backup failed - will retry on the next start.
-  echo.
-)
+call "%~dp0scripts\backup-db.bat" silent daily
+if errorlevel 1 echo [WARN] Today's backup failed - will retry on the next start.
+echo.
 
-rem --- 3. Backend API ---
-start "R Garage - Backend (API)" cmd /k "cd /d %~dp0backend && npm run start"
-echo Waiting for the API...
-powershell -NoProfile -Command "1..30 | ForEach-Object { try { if ((Invoke-WebRequest -Uri 'http://127.0.0.1:4000/health' -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Seconds 1 }; exit 1"
-if errorlevel 1 (
-  echo [X] The API did not start. Look at the Backend window for the error.
-  echo.
-  pause
-  exit /b 1
-)
-echo [OK] API is up.
-
-rem --- 4. Website ---
-if not exist "%~dp0frontend\.next\BUILD_ID" (
-  echo First run detected: building the website ^(takes a minute or two^)...
-  pushd "%~dp0frontend"
+rem --- 3. Build on first run ---
+if not exist "%~dp0.next\BUILD_ID" (
+  echo First run detected: building the app ^(takes a minute or two^)...
   call npm run build
   if errorlevel 1 (
-    popd
     echo [X] Build failed - see the errors above.
     pause
     exit /b 1
   )
-  popd
 )
-start "R Garage - Frontend (Website)" cmd /k "cd /d %~dp0frontend && npm start"
-echo Waiting for the website...
+
+rem --- 4. Start the unified app server ---
+start "R Garage - App Server" cmd /k "cd /d %~dp0 && npm start"
+echo Waiting for the app server...
 powershell -NoProfile -Command "1..60 | ForEach-Object { try { if ((Invoke-WebRequest -Uri 'http://127.0.0.1:3000/login' -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { exit 0 } } catch {}; Start-Sleep -Seconds 1 }; exit 1"
 if errorlevel 1 (
-  echo [X] The website did not start. Look at the Frontend window for the error.
+  echo [X] The app server did not start. Look at the App Server window for the error.
   echo.
   pause
   exit /b 1
 )
-echo [OK] Website is up.
+echo [OK] App server is up.
 
 start "" http://127.0.0.1:3000
 
 echo.
 echo R Garage is ready!
 echo   PC:    http://localhost:3000
-echo   Phone: http://192.168.68.102:3000   (same Wi-Fi; run "ipconfig" if it changed)
+powershell -NoProfile -Command "$ip = ([System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | Where-Object { $_.OperationalStatus -eq 'Up' -and $_.NetworkInterfaceType -ne 'Loopback' -and $_.Name -notmatch 'vEthernet|WSL|Docker|VMware|VirtualBox' -and $_.Description -notmatch 'Hyper-V|Virtual|WSL|VMware|VirtualBox' } | ForEach-Object { $_.GetIPProperties().UnicastAddresses } | Where-Object { $_.Address.AddressFamily -eq 'InterNetwork' -and $_.Address.IPAddressToString -notlike '169.254.*' } | Select-Object -First 1 -ExpandProperty Address).IPAddressToString; if ($ip) { Write-Host ('  Phone: http://' + $ip + ':3000   (same Wi-Fi)') } else { Write-Host '  Phone: connect to Wi-Fi and run ipconfig to find this PC IPv4 address' }"
 echo.
-echo Keep the Backend and Frontend windows open while using the app.
+echo Keep the App Server window open while using the app.
 timeout /t 12 >nul

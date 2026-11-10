@@ -60,9 +60,11 @@ additionally require an `Origin` header matching the request origin
 
 ## D-08 — Idempotent sales posting
 The entry form generates a UUID `requestId` once per form session. A unique
-index on `sale_batches.request_id` plus a pre-check make retries return the
-original batch (`replayed: true`) with no second stock deduction. A new key
-is generated only after a successful save.
+index on `sale_batches.request_id` reserves the batch before stock checks, so
+simultaneous retries return the original batch (`replayed: true`) with no
+second stock deduction. `request_hash` rejects a reused ID with changed
+contents. Historical rows without a hash retain replay behavior. A new key is
+generated only after a successful save.
 
 ## D-09 — Line merging and totals
 Duplicate product lines are merged server-side; per-product stock deductions
@@ -163,8 +165,12 @@ CONVERT_TZ avoided per D-05) on `users`, `categories`, `products`,
 was always written with explicit `UTC_TIMESTAMP()` and was already correct.
 The migration records itself inside the same transaction as the data shift
 and `db-migrate` now uses `INSERT IGNORE` for the record, so an interrupted
-run can never double-shift. `npm run db:migrate` (once, on installs that
-predate this entry; a no-op on fresh ones). The acceptance suite gained two
+run can never double-shift. Fresh `schema.sql` imports record a migration
+baseline before seeding; imports over existing tables leave pending migrations
+intact. `npm run db:migrate` runs on installs that predate this entry and is a
+no-op on fresh ones. A database with the current table layout but no UTC
+migration marker is ambiguous, so migration requires `--already-utc` or
+`--legacy-local-datetimes` rather than guessing. The acceptance suite gained two
 regression checks asserting `createdAt` / `voidedAt` are within 5 minutes of
 UTC now — catching this class of bug automatically.
 
@@ -436,3 +442,30 @@ way forward.
   automatic reload; 47/47 frontend tests, typecheck, lint and build pass.
   Awaiting push/deploy. The external keep-alive (D-26) remains the preventive
   fix.
+
+## D-29 - Complete the codebase improvement plan locally
+
+The owner requested the six-phase review plan be implemented, with live rollout
+deferred. Inventory now paginates and the sales picker searches the server.
+Sales reserve their unique request ID before product locks and store a normalized
+request hash; changed requests conflict, and simultaneous retries share one sale.
+Historical rows without a hash retain their prior replay behavior.
+
+Fresh schema imports record migration versions. Historical timestamp repair
+sets created/updated timestamps together, preserves newly written UTC metadata,
+and requires an explicit timezone choice for ambiguous schemas. Migration
+runners hold a database-specific advisory lock. `npm start` checks schema
+compatibility; upgrades back up, migrate, then build. Init, import and backup
+all honor `DB_NAME`; backup/restore are checked against a disposable database.
+
+Successful writes invalidate browser caches centrally. Mounted hooks refetch,
+old responses cannot repopulate invalidated data, and auth boundaries clear
+session data. `/api/wake` now uses `/ready`. Frontend logout expires its own
+stateless session cookie without waiting for the API.
+
+The API and proxy reject bodies over 1 MiB. IDs, pagination, date ranges and
+filters are validated, and verified JWTs re-check the account's active status.
+The modal traps keyboard focus, handles Escape, preserves focus during edits,
+and restores the trigger on close. Tests cover these behaviors in jsdom because
+local browser control is disabled. The dummy activity workflow was removed.
+The complete scope and verification map are in `docs/IMPROVEMENT_PLAN.md`.

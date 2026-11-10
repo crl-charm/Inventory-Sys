@@ -1,31 +1,30 @@
-# Render Blueprint — creates both services for the R Garage app.
+# Render Blueprint — single unified web service for the R Garage app.
 #
-#   API  (backend/)  →  rgarage-api
-#   UI   (frontend/) →  rgarage-web
+#   App + API (root) → rgarage-web
+#
+# Both the Next.js UI and all /api/* routes run in the same Node.js process,
+# eliminating cross-service HTTP hops, double cold starts, and BACKEND_URL
+# sync issues. A single cron ping to /health keeps the entire app awake.
 #
 # The database stays an external managed MySQL (Aiven's free plan
 # recommended): Render has no MySQL of its own. Apply this file with
 # Dashboard → New + → Blueprint → select this repo; Render prompts for the
 # `sync: false` values below (DB_HOST, DB_PORT, DB_PASSWORD, DB_SSL_CA).
-#
-# The two services point at each other through RENDER_EXTERNAL_URL, so
-# BACKEND_URL and FRONTEND_ORIGIN stay correct even if Render appends a
-# suffix to a service URL. See README → "Render (optional — online
-# deployment)" for the manual walkthrough and Aiven setup.
 
 services:
-  # --- API (backend/) -------------------------------------------------------
   - type: web
-    name: rgarage-api
+    name: rgarage-web
     runtime: node
     region: singapore
     plan: free
-    rootDir: backend
-    buildCommand: npm install
+    buildCommand: npm ci && npm run build
+    # npm start checks schema compatibility before starting Next.js. Back up and
+    # migrate explicitly before deploying; the app never runs a historical data
+    # repair at boot.
     startCommand: npm start
     # /health is a cheap LIVENESS check (no database access). Keep it that way:
     # do not point this at /ready, or a database outage would make Render
-    # restart a perfectly healthy API. /ready exists for manual diagnosis.
+    # restart a perfectly healthy server. /ready exists for manual diagnosis.
     healthCheckPath: /health
     envVars:
       # External managed MySQL. Prompted once, on first apply.
@@ -50,33 +49,5 @@ services:
         generateValue: true
       - key: APP_TIME_ZONE
         value: Asia/Manila
-      # HTTPS cookies → Secure; the app's local default HOST is 127.0.0.1
-      # (LAN-only), so a public host must opt in.
       - key: NODE_ENV
         value: production
-      - key: HOST
-        value: "0.0.0.0"
-      # CSRF allowlist: only the UI service may call mutating APIs.
-      - key: FRONTEND_ORIGIN
-        fromService:
-          name: rgarage-web
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
-
-  # --- UI (frontend/) -------------------------------------------------------
-  - type: web
-    name: rgarage-web
-    runtime: node
-    region: singapore
-    plan: free
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    startCommand: npm start
-    envVars:
-      - key: BACKEND_URL
-        fromService:
-          name: rgarage-api
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: APP_TIME_ZONE
-        value: Asia/Manila

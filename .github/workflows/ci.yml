@@ -1,11 +1,8 @@
-# Continuous integration for the split app (backend/ + frontend/).
+# Continuous integration for the unified full-stack Next.js app.
 #
-# Verifies the frontend lints, typechecks and builds, and the backend
-# typechecks, on every push to main and every pull request.
-#
-# Deployment is NOT done from here: the app is a full-stack system (Node
-# server + MySQL), so it cannot run on GitHub Pages. It deploys to Render as
-# two Web Services (see README, "Deploying to Render").
+# Verifies linting, typechecking, unit/jsdom tests, disposable MariaDB
+# integration tests (including backup/restore), and production build on every
+# push to main and every pull request.
 name: CI
 
 on:
@@ -15,12 +12,28 @@ on:
   workflow_dispatch:
 
 jobs:
-  frontend:
-    name: Frontend (lint, typecheck, build)
+  verify:
+    name: Lint, typecheck, test, and build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: integration_only
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: 3307
+      TEST_DB_USER: root
+      TEST_DB_PASSWORD: integration_only
+      TEST_MYSQL_DUMP_PATH: mariadb-dump
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,36 +42,22 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Lint
         run: npm run lint
       - name: Typecheck
         run: npm run typecheck
-      - name: Unit tests
+      - name: Unit and DOM tests
         run: npm test
-      - name: Build
+      - name: Install dump client for backup and restore checks
+        run: |
+          if ! command -v mariadb-dump >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends mariadb-client
+          fi
+      - name: Disposable database integration tests
+        run: npm run test:integration
+      - name: Production build
         run: npm run build
-
-  backend:
-    name: Backend (typecheck, tests)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - name: Install dependencies
-        run: npm ci
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Unit tests
-        run: npm test
